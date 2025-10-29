@@ -205,3 +205,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Results Folders
+Résultats
+kfold_results_unified
+external_results
+data_validation_reports
