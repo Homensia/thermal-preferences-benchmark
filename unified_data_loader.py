@@ -1,3 +1,25 @@
+"""
+Unified dataset loader for thermal comfort prediction.
+
+This module centralizes data loading, cleaning, harmonization and validation for
+multiple datasets used in the project:
+
+    - ASHRAE global comfort dataset
+    - CEREMA building-level comfort dataset
+    - MATHILDE dataset (smart home comfort experiments)
+    - External datasets (Moujalled, Hostein) when processed similarly
+
+Its objectives are:
+    • Harmonize feature types across datasets  
+    • Normalize categorical + numeric formatting  
+    • Convert labels to consistent float values  
+    • Apply dataset-specific label mappings  
+    • Generate dataset-level summary statistics  
+    • Provide standardized JSON validation reports  
+
+It ensures reproducibility and consistent preprocessing across all experiments
+(classical ML, deep learning, hybrid models, transfer learning).
+"""
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -7,13 +29,26 @@ import json
 
 class UnifiedDataLoader:
     """
-    Chargeur de données simplifié pour ASHRAE, CEREMA, MATHILDE.
-    
-    Fonctions :
-    - Harmonisation des types float/string pour les labels
-    - Harmonisation des types pour les features
-    - Statistiques par target 
-    - Rapports de validation
+    Generic loader for harmonizing feature and label types across datasets.
+
+    This class provides:
+        - Consistent casting of numerical/categorical feature types
+        - Automatic numeric conversion of target variables
+        - Optional label harmonization via a custom mapping dictionary
+        - Computation of per-target descriptive statistics
+        - Console reports + JSON export of dataset validation results
+
+    Parameters
+    ----------
+    features : list of str
+        Names of features expected in the loaded dataset.
+    targets : list of str
+        Names of possible target variables.
+    label_mappings : dict, optional
+        Dictionary of the form:
+            { target_name : { raw_label : normalized_label } }
+        Used to harmonize heterogeneous label formats across datasets
+        (e.g., "-3", -3, -3.0 → all mapped to -3.0).
     """
     
     def __init__(self, features: List[str], targets: List[str], 
@@ -32,14 +67,31 @@ class UnifiedDataLoader:
     
     def load_and_validate(self, csv_path: str, dataset_name: str = "unknown") -> pd.DataFrame:
         """
-        Charge et harmonise un dataset.
-        
-        Args:
-            csv_path: Chemin du CSV
-            dataset_name: Nom pour le rapport
-            
-        Returns:
-            DataFrame avec types harmonisés
+        Load, clean, and validate a comfort dataset.
+
+        Steps
+        -----
+        1. Load CSV with pandas  
+        2. Identify available target variables  
+        3. Select features + targets  
+        4. Normalize feature types:
+             - numeric → coercion to float
+             - categorical → clean string formatting  
+        5. Convert targets to float + apply label mapping if provided  
+        6. Compute statistics (class frequencies, imbalance ratios)  
+        7. Print validation report  
+
+        Parameters
+        ----------
+        csv_path : str
+            Path to the CSV file.
+        dataset_name : str, default="unknown"
+            Name used in printed / saved reports.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Harmonized dataset.
         """
         print(f"\n📂 Chargement: {dataset_name} ({csv_path})")
         
@@ -113,7 +165,20 @@ class UnifiedDataLoader:
         return df
     
     def _print_validation_report(self, dataset_name: str):
-        """Affiche rapport de validation console"""
+        """
+        Print a formatted validation report for a loaded dataset.
+
+        Outputs:
+            - Dataset shapes
+            - Detected target variables
+            - Per-target class distribution
+            - Class imbalance warnings
+
+        Parameters
+        ----------
+        dataset_name : str
+            Name of dataset to display.
+        """
         stats = self.statistics[dataset_name]
         
         print(f"\n{'='*70}")
@@ -144,7 +209,14 @@ class UnifiedDataLoader:
         print(f"{'='*70}\n")
     
     def save_statistics(self, output_path: Path):
-        """Sauvegarde statistiques en JSON"""
+        """
+        Save accumulated dataset statistics to a JSON file.
+
+        Parameters
+        ----------
+        output_path : pathlib.Path
+            Path of the JSON file to create (directories auto-created).
+        """
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
@@ -157,25 +229,33 @@ class UnifiedDataLoader:
 
 def create_label_mappings_from_models(ft_model_dict: dict) -> dict:
     """
-    Crée mappings automatiquement depuis les modèles FT entraînés.
-    
-    Args:
-        ft_model_dict: {target: trained_FT_model}
-        
-    Returns:
-        label_mappings: {target: {label_variant: harmonized_label}}
-        
-    Exemple:
-        ft_models = {"thermal_sensation": trained_ft_model}
-        mappings = create_label_mappings_from_models(ft_models)
-        
-        # Résultat
+    Build label harmonization mappings from trained FTTransformer models.
+
+    Since FT models internally store consistent float-encoded target labels
+    (model.le_y_.classes_), this function creates a mapping ensuring that:
+
+        -3 / "-3" / -3.0 → -3.0  
+        -2 / "-2" / -2.0 → -2.0  
+        etc.
+
+    This allows external datasets (Moujalled, Hostein) to be harmonized before
+    evaluation or fine-tuning.
+
+    Parameters
+    ----------
+    ft_model_dict : dict
+        Mapping: { target_name : trained_FTClassifier }
+
+    Returns
+    -------
+    dict
+        Combined label mapping:
         {
-            "thermal_sensation": {
-                -3: -3.0, "-3": -3.0, -3.0: -3.0,
-                -2: -2.0, "-2": -2.0, -2.0: -2.0,
+            target_name: {
+                raw_label_variant → normalized_float_label,
                 ...
-            }
+            },
+            ...
         }
     """
     mappings = {}
