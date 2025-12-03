@@ -211,3 +211,10 @@ Résultats
 kfold_results_unified
 external_results
 data_validation_reports
+Moujalled_api.csv
+Hostein_api.csv
+ASHRAE_2022_Clean.csv
+ASHRAE_2022_Clean_api.csv
+.cache.sqlite
+analysis_results_distributions
+Votes_analysis

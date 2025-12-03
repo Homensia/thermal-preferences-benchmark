@@ -360,3 +360,49 @@ The script computes a complete suite of comfort indices:
 ├── results_indicateurs/                        #classification report per target × indicator.
 
 
+
+
+
+## 📊 Phase 4 – Data Distribution & Vote Consistency Analyses
+### 1 Train/Test Distribution Analysis 
+
+File: train_test_compraison.ipynb 
+📁 Output folder: analysis/analysis_results_distributions/
+
+This analysis checks whether the train and test splits used for ML training are statistically consistent.
+It compares:
+
+✔ categorical feature distributions (counts & percentages)
+✔ numerical feature ranges (mean, std, min/max shifts)
+✔ divergence patterns between train and test
+
+
+
+### 2 Context-Based Votes Consistency Analysis
+File : context_votes.ipynb
+
+✔ Cas A — Exact Same Context
+
+Strict identical conditions → consistency of TSV/TPV under perfect matching.
+📁 Output folder: analysis/Votes_analysis/analysis_results_exact_context/
+
+✔ Cas A.1 — Rounded Context (0.1 precision)
+
+Small variations tolerated by rounding numeric features to one decimal.
+📁 Output folder: analysis/Votes_analysis/analysis_results_rounded_context/
+
+✔ Cas A.2 — Rounded-to-Int Context
+
+Coarse grouping simulating by rounding numeric features to Int.
+📁 Output folder: analysis/Votes_analysis/analysis_results_rounded_int_context/
+
+✔ Cas B — Tolerance Windows (multi-dimensional ± ranges)
+
+Similarity based on tolerance thresholds (±1°C, ±5% RH, ±0.3 m/s…).
+📁 Output folder: analysis/Votes_analysis/analysis_results_tolerance_context/
+
+✔ Cas C — KNN Nearest Neighbor in Normalized Feature Space
+
+For each person, compare vote with the closest real-world neighbor in the full feature space.
+This provides the upper bound of predictability (noise floor) for ML models
+📁 Output folder: analysis/Votes_analysis/analysis_results_knn_neighbor/
