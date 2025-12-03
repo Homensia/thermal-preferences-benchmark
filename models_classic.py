@@ -65,6 +65,7 @@ class LabelEncodedClassifier(BaseEstimator, ClassifierMixin):
     classes_ : array-like
         Original class names (before encoding).
     """
+    def __init__(self, estimator=None, **kwargs):
         self.estimator = estimator
         if kwargs:
             self.set_params(**kwargs)
@@ -112,7 +113,7 @@ class LabelEncodedClassifier(BaseEstimator, ClassifierMixin):
         return self
 
     def fit(self, X, y):
-         """
+        """
         Fit the wrapped estimator using label-encoded targets.
 
         Parameters

@@ -192,7 +192,7 @@ class FocalLoss(nn.Module):
         self.reduction = reduction
 
     def forward(self, logits, targets):
-         """
+        """
         Compute focal loss.
 
         Returns
@@ -457,11 +457,12 @@ class FTClassifier(_TorchBase):
     """
     def __init__(self, num_cols, cat_cols, dim=256, depth=4, heads=8, dim_head=32,
                  attn_dropout=0.1, ff_dropout=0.1, **kwargs):
-    """
-        Fit the FT-Transformer classifier.
 
-        Steps identical to ANNClassifier.fit but applied to FTTransformer.
-    """
+        """
+            Fit the FT-Transformer classifier.
+
+            Steps identical to ANNClassifier.fit but applied to FTTransformer.
+        """
         super().__init__(num_cols, cat_cols, **kwargs)
         self.dim, self.depth, self.heads, self.dim_head = dim, depth, heads, dim_head
         self.attn_dropout, self.ff_dropout = attn_dropout, ff_dropout
