@@ -366,7 +366,7 @@ The script computes a complete suite of comfort indices:
 ## 📊 Phase 4 – Data Distribution & Vote Consistency Analyses
 ### 1 Train/Test Distribution Analysis 
 
-File: train_test_compraison.ipynb 
+File: analysis/train_test_compraison.ipynb 
 📁 Output folder: analysis/analysis_results_distributions/
 
 This analysis checks whether the train and test splits used for ML training are statistically consistent.
@@ -379,7 +379,7 @@ It compares:
 
 
 ### 2 Context-Based Votes Consistency Analysis
-File : context_votes.ipynb
+File : analysis/context_votes.ipynb
 
 ✔ Cas A — Exact Same Context
 
