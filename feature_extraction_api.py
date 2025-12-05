@@ -30,13 +30,19 @@ from retry_requests import retry
 from pathlib import Path
 import logging
 from typing import Dict, List, Optional, Tuple
+from config_loader import load_config
+
+
+
+
+CONFIG = load_config()["weather"]
 
 
 # ====== CONFIGURATION ======
 DEFAULT_CONFIG = {
-    'windows': [28],        # EMA windows (days)
-    'days_fetch': 30,       # how many past days to fetch from Open-Meteo
-    'cache_dir': '.cache'   # folder where API cache is stored
+    'windows': CONFIG["ema_windows"],        # EMA windows (days)
+    'days_fetch': CONFIG["days_fetch"],       # how many past days to fetch from Open-Meteo
+    'cache_dir': CONFIG["cache_dir"]   # folder where API cache is stored
 }
 
 

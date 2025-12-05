@@ -50,13 +50,19 @@ from models import (
 )
 from models_classic import make_preprocess, LabelEncodedClassifier
 from hybrid import _find_last_linear_for_out_dim
+from config_loader import load_config
+
+
+
+
+
 
 
 # ======================================================================================
 # CONFIGURATION
 # ======================================================================================
 
-# Use global seed from models.py
+CONFIG = load_config()
 set_all_seeds(RANDOM_SEED)
 
 
@@ -186,9 +192,9 @@ def clone_ft_for_finetune(ft_model,
         A cloned and fine-tuning-ready FT model.
     """
     m = copy.deepcopy(ft_model)
-    m.lr = lr
-    m.epochs = epochs
-    m.patience = patience
+    m.lr = float(CONFIG["transfer"]["finetune_params"]["FT_head"]["lr"])
+    m.epochs = CONFIG["transfer"]["finetune_params"]["FT_head"]["epochs"]
+    m.patience = CONFIG["transfer"]["finetune_params"]["FT_head"]["patience"]
     m.record_curves = True
     m.curves_val_split = 0.1
     

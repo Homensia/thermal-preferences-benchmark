@@ -66,6 +66,7 @@ from hybrid import (    _find_last_linear_for_out_dim,
                         visualize_ft_embeddings
 
 )
+from config_loader import load_config
 
 
 
@@ -73,19 +74,14 @@ from hybrid import (    _find_last_linear_for_out_dim,
 # ======================================================================================
 # GLOBAL CONFIGURATION
 # ======================================================================================
+CONFIG = load_config()
 
-RANDOM_SEED = 42
 
-FEATURES_ALL = [
-    'Tair', 'RH', 'clo', 'vel', 'Âge', 'Tout', 'Met', 'Sexe', 
-    'Season', 'Climate', 'Building_type', 'cooling type',
-    'Trm_ema_28', 'RHout_ema_28', 'precip_ema_28', 'sunshine_ema_h_28', 'wind_ema_28'
-]
-
-TARGETS_ALL = ["thermal_sensation", "TSV_3p", "thermal_preference"]
-
-# Global output directory (used by other modules like transfert.py)
+RANDOM_SEED = CONFIG["seed"]
+FEATURES_ALL = CONFIG["data"]["features"]
+TARGETS_ALL = CONFIG["data"]["targets"]
 base_out = Path("kfold_results_unified")
+
 
 # ======================================================================================
 # SCORERS FOR CROSS-VALIDATION
@@ -102,7 +98,6 @@ SCORERS = {
 # =========================================================================================
 # ===== REPRODUCIBILITY SEEDS =====
 # =========================================================================================
-RANDOM_SEED = 42
 
 def set_all_seeds(seed=RANDOM_SEED):
     """
@@ -183,33 +178,6 @@ def plot_confusion_matrix(cm, labels, title="Matrice de confusion",save_path=Non
         plt.savefig(save_path, dpi=300) 
     plt.show()
 
-def _scatter_2d(X2, y, title, save_path):
-    """
-    2D scatterplot helper used for UMAP visualization.
-
-    Parameters
-    ----------
-    X2 : numpy.ndarray
-        2D coordinates after UMAP or PCA.
-    y : array-like
-        Color-coded point labels.
-    title : str
-        Plot title.
-    save_path : pathlib.Path
-        Output file path.
-    """
-    plt.figure(figsize=(7,6))
-    classes = pd.Series(y).astype(str)
-    labels = classes.unique().tolist()
-    for lab in labels:
-        m = (classes == lab).values
-        plt.scatter(X2[m,0], X2[m,1], s=12, alpha=0.75, label=str(lab))
-    plt.title(title)
-    plt.xlabel("dim-1"); plt.ylabel("dim-2")
-    plt.legend(markerscale=1.5, bbox_to_anchor=(1.05, 1.0), loc="upper left")
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=300)
-    plt.close()
 
 
 # ======================================================================================
@@ -567,8 +535,8 @@ def run_experiment_for_target(
     
 
     # Get model configurations
-    MODELS_SK    = get_models(num_cols, cat_cols, seed=RANDOM_SEED)
-    MODELS_TORCH = get_torch_models(num_cols, cat_cols, seed=RANDOM_SEED)
+    MODELS_SK    = get_models(num_cols, cat_cols, seed=RANDOM_SEED, hparams=CONFIG["classical_hparams"] )
+    MODELS_TORCH = get_torch_models(num_cols, cat_cols, CONFIG["deep_hparams"], seed=RANDOM_SEED)
 
 
     # Filter classical models
@@ -693,6 +661,7 @@ def run_experiment_for_target(
                             target_name=TARGET,
                             tag_prefix="FTemb",
                             heads=heads_to_train,
+                            hparams=CONFIG["hybrid"]
                         )
                         for r in head_rows:
                             per_model_test.append(r)
