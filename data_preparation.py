@@ -29,12 +29,18 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 from kgcpy import lookupCZ 
+from config_loader import load_config
+
+
+
+
 
 # ====== CONFIGURATION ======
+CONFIG = load_config()
 DEFAULT_CONFIG = {
-    "raw_csv": "Data/ASHRAE_09_06_2022.csv",
-    "raw_metadata_xlsx": "Data/ASHRAE_09_06_2022_metadata.xlsx",
-    "output_clean_csv": "Data/ASHRAE_2022_Clean.csv",
+    "raw_csv": CONFIG["data"]["raw"]["ashrae_csv"],
+    "raw_metadata_xlsx":  CONFIG["data"]["raw"]["ashrae_meta"],
+    "output_clean_csv": CONFIG["data"]["clean"]["ashrae"],
 }
 
 RENAME_MAP: Dict[str, str] = {

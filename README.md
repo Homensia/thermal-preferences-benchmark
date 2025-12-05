@@ -56,6 +56,29 @@ thermal-preferences-benchmark/
 └── requirements.txt
 └── README.md.txt 
 
+
+
+📦 Configuration System
+
+The project  includes a centralized configuration file:
+
+```bash
+python data_preparation.py 
+```
+This file defines:
+✔ dataset paths
+✔ model hyperparameters (classical, deep, hybrid)
+✔weather API extraction parameters
+✔ parameters for transfer learning
+✔ general settings 
+
+The configuration is loaded using:
+
+```bash
+from config_loader import load_config
+CONFIG = load_config()
+```
+
 ## Prerequisites
 
 ```bash

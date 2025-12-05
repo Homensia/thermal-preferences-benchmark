@@ -39,10 +39,11 @@ from sklearn.metrics import (
     f1_score, precision_score, recall_score, accuracy_score,
     classification_report, confusion_matrix, make_scorer
 )
+from config_loader import load_config
 
 
-
-RANDOM_SEED = 42
+CONFIG = load_config()
+RANDOM_SEED    = CONFIG["seed"]
 # ======================================================================================
 # PREPROCESSOR
 # ======================================================================================
@@ -255,7 +256,7 @@ class _TorchBase(BaseEstimator, ClassifierMixin):
                   curves_val_split=0.1, record_curves=True):
         self.num_cols = num_cols
         self.cat_cols = cat_cols
-        self.lr = lr
+        self.lr = float(lr)
         self.batch_size = batch_size
         self.epochs = epochs
         self.patience = patience
@@ -314,10 +315,13 @@ class ANNClassifier(_TorchBase):
     **kwargs :
         Passed to _TorchBase.
     """
-    def __init__(self, num_cols, cat_cols=(), hidden=(256,128), dropout=0.1, **kwargs):
+    def __init__(self, num_cols, cat_cols=(), hidden=(256,128), dropout=0.1, lr=1e-3, batch_size=256, patience=10,**kwargs):
         super().__init__(num_cols, cat_cols, **kwargs)
         self.hidden = hidden
         self.dropout = dropout
+        self.lr = float(lr)              
+        self.batch_size = batch_size
+        self.patience = patience
 
     def fit(self, X, y):
         """
@@ -456,7 +460,7 @@ class FTClassifier(_TorchBase):
         Passed to _TorchBase.
     """
     def __init__(self, num_cols, cat_cols, dim=256, depth=4, heads=8, dim_head=32,
-                 attn_dropout=0.1, ff_dropout=0.1, **kwargs):
+                 attn_dropout=0.1, ff_dropout=0.1, lr=1e-4, batch_size=512, patience=10, **kwargs):
 
         """
             Fit the FT-Transformer classifier.
@@ -466,6 +470,9 @@ class FTClassifier(_TorchBase):
         super().__init__(num_cols, cat_cols, **kwargs)
         self.dim, self.depth, self.heads, self.dim_head = dim, depth, heads, dim_head
         self.attn_dropout, self.ff_dropout = attn_dropout, ff_dropout
+        self.lr = float(lr)              
+        self.batch_size = batch_size
+        self.patience = patience
 
     def fit(self, X, y):
         self._set_seeds()
@@ -588,7 +595,7 @@ class FTClassifier(_TorchBase):
 # ======================================================================================
 # MODEL REGISTRY
 # ======================================================================================
-def get_torch_models(num_cols, cat_cols, seed=RANDOM_SEED):
+def get_torch_models(num_cols, cat_cols, deep_hparams, seed=RANDOM_SEED):
     """
     Registry of available deep-learning models.
 
@@ -599,23 +606,55 @@ def get_torch_models(num_cols, cat_cols, seed=RANDOM_SEED):
     """
     models = {
         "ANN": (
-            ANNClassifier(num_cols=num_cols, cat_cols=cat_cols, epochs=250, patience=10, random_state=seed,focal_gamma=2.0,
-                               batch_size=1024, lr=3e-4, record_curves=True),
+            ANNClassifier(
+        num_cols=num_cols,
+        cat_cols=cat_cols,
+        hidden=deep_hparams["ANN"]["hidden_layers"],    
+        dropout=deep_hparams["ANN"]["dropout"],
+        lr=deep_hparams["ANN"]["lr"],
+        batch_size=deep_hparams["ANN"]["batch_size"],
+        patience=deep_hparams["ANN"]["patience"],
+        random_state=seed,
+        focal_gamma=2.0,
+        record_curves=True
+    ),
             {
-                "hidden": [(256,128), (512,256),(512,256,128), (1024,512,256)],
-                "dropout": [0.1, 0.2],
-                "batch_size": [1024]
-            }
+            "hidden": [deep_hparams["ANN"]["hidden_layers"]], 
+            "dropout": [deep_hparams["ANN"]["dropout"]],
+            "epochs": [deep_hparams["ANN"]["epochs"]],
+            "lr": [deep_hparams["ANN"]["lr"]],
+            "batch_size": [deep_hparams["ANN"]["batch_size"]],
+            "patience": [deep_hparams["ANN"]["patience"]],
+         }
         ),
         "FTTransformer": (
-            FTClassifier(num_cols=num_cols, cat_cols=cat_cols, epochs=250, patience=10, random_state=seed,focal_gamma=2.0,
-                              batch_size=1024, lr=3e-4, record_curves=True),
+            FTClassifier(
+            num_cols=num_cols,
+            cat_cols=cat_cols,
+            dim=deep_hparams["FTTransformer"]["dim"],
+            depth=deep_hparams["FTTransformer"]["depth"],
+            heads=deep_hparams["FTTransformer"]["heads"],
+            dim_head=deep_hparams["FTTransformer"]["dim_head"],
+            attn_dropout=deep_hparams["FTTransformer"]["attn_dropout"],
+            ff_dropout=deep_hparams["FTTransformer"]["ff_dropout"],
+            lr=deep_hparams["FTTransformer"]["lr"],
+            batch_size=deep_hparams["FTTransformer"]["batch_size"],
+            patience=deep_hparams["FTTransformer"]["patience"],
+            random_state=seed,
+            focal_gamma=2.0,
+            record_curves=True
+            ),
             {
-                "dim": [246],
-                "depth": [4],
-                "heads": [4],
-                "batch_size": [1024]
-            }
+            "dim": [deep_hparams["FTTransformer"]["dim"]],
+            "depth": [deep_hparams["FTTransformer"]["depth"]],
+            "heads": [deep_hparams["FTTransformer"]["heads"]],
+            "dim_head": [deep_hparams["FTTransformer"]["dim_head"]],
+            "attn_dropout": [deep_hparams["FTTransformer"]["attn_dropout"]],
+            "ff_dropout": [deep_hparams["FTTransformer"]["ff_dropout"]],
+            "epochs": [deep_hparams["FTTransformer"]["epochs"]],
+            "lr": [deep_hparams["FTTransformer"]["lr"]],
+            "batch_size": [deep_hparams["FTTransformer"]["batch_size"]],
+           }
         )
     }
     return models

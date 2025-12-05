@@ -33,9 +33,13 @@ from sklearn.metrics import (
     f1_score, precision_score, recall_score, accuracy_score,
     classification_report, confusion_matrix, make_scorer
 )
+from config_loader import load_config
 
 
-RANDOM_SEED = 42
+
+
+CONFIG = load_config()
+RANDOM_SEED    = CONFIG["seed"]
 
 # ======================================================================================
 # LABEL-ENCODING WRAPPER
@@ -205,7 +209,8 @@ def make_preprocess(num_cols, cat_cols):
 # ======================================================================================
 # MODEL DEFINITIONS
 # ======================================================================================
-def get_models(num_cols, cat_cols, seed=RANDOM_SEED):
+def get_models(num_cols, cat_cols, seed=RANDOM_SEED,hparams=None):
+    hparams = hparams or {} 
     """
     Build classical ML models with associated hyper-parameter grids.
 
@@ -233,19 +238,19 @@ def get_models(num_cols, cat_cols, seed=RANDOM_SEED):
         "RandomForest": (
             Pipeline([("pp", pp), ("clf", RandomForestClassifier(random_state=seed))]),
             {
-                "clf__n_estimators": [600],
-                "clf__max_depth": [25],
-                "clf__min_samples_split": [10],
-                "clf__min_samples_leaf": [2],
-                "clf__class_weight": ["balanced_subsample"]
+                "clf__n_estimators": [hparams["RandomForest"]["n_estimators"]],
+                "clf__max_depth": [hparams["RandomForest"]["max_depth"]],
+                "clf__min_samples_split": [hparams["RandomForest"]["min_samples_split"]],
+                "clf__min_samples_leaf": [hparams["RandomForest"]["min_samples_leaf"]],
+                "clf__class_weight": [hparams["RandomForest"]["class_weight"]]
             }
         ),
         "SVM": (
             Pipeline([("pp", pp), ("clf", SVC(probability=False, random_state=seed))]),
             {
-                "clf__kernel": ["rbf", "linear"],
-                "clf__C": [0.5, 1, 5],
-                "clf__gamma": ["scale", "auto"]
+                "clf__kernel": hparams["SVM"]["kernel"],
+                "clf__C": hparams["SVM"]["C"],
+                "clf__gamma": hparams["SVM"]["gamma"]
             }
         ),
         "XGBoost": (
@@ -255,11 +260,11 @@ def get_models(num_cols, cat_cols, seed=RANDOM_SEED):
                                 objective="multi:softprob")
               ))]),
             {
-        "clf__estimator__n_estimators": [300],
-        "clf__estimator__max_depth": [6],
-        "clf__estimator__learning_rate": [0.05],
-        "clf__estimator__subsample": [0.7],
-        "clf__estimator__colsample_bytree": [0.7],
+        "clf__estimator__n_estimators": [hparams["XGBoost"]["n_estimators"]],
+        "clf__estimator__max_depth": [hparams["XGBoost"]["max_depth"]],
+        "clf__estimator__learning_rate": [hparams["XGBoost"]["learning_rate"]],
+        "clf__estimator__subsample": [hparams["XGBoost"]["subsample"]],
+        "clf__estimator__colsample_bytree": [hparams["XGBoost"]["colsample_bytree"]],
             }
         ),
     }

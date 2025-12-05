@@ -25,6 +25,10 @@ from sklearn.ensemble import RandomForestClassifier
 from xgboost import XGBClassifier
 from sklearn.base import clone
 import matplotlib
+from sklearn.metrics import (
+    f1_score, precision_score, recall_score, accuracy_score,
+    classification_report, confusion_matrix, make_scorer
+)
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -32,10 +36,33 @@ import umap
 import copy
 import joblib
 import torch.nn.functional as F
+from config_loader import load_config
 
 
-RANDOM_SEED = 42
 
+
+CONFIG = load_config()
+RANDOM_SEED    = CONFIG["seed"]
+
+
+
+
+# ======================================================================================
+# UTILITY FUNCTIONS
+# ======================================================================================
+def ensure_dir(p: Path):
+    """
+    Create directory if missing.
+
+    Parameters
+    ----------
+    p : pathlib.Path
+
+    Returns
+    -------
+    pathlib.Path
+    """
+    p.mkdir(parents=True, exist_ok=True); return p
 # ======================================================================================
 # INTERNAL UTILITY — LOCATE LAST LINEAR LAYER
 # ======================================================================================
@@ -190,7 +217,9 @@ class FTEmbeddingHead(BaseEstimator, ClassifierMixin):
 # ======================================================================================
 def run_heads_on_ft_and_save(ft_clf, X_train, y_train, X_test, y_test, out_dir: Path,
                              target_name: str, tag_prefix="FTemb",n_umap_components=32,
-                             heads: Optional[List[str]] = None,):
+                             heads: Optional[List[str]] = None,hparams=None):
+    hparams = hparams or {}
+    
     """
     Train classical ML heads (RF, XGB) on FTTransformer embeddings and save results.
 
@@ -243,10 +272,10 @@ def run_heads_on_ft_and_save(ft_clf, X_train, y_train, X_test, y_test, out_dir: 
     if "RF" in heads:
         rf = RandomForestClassifier(random_state=RANDOM_SEED, class_weight="balanced_subsample")
         rf_grid = {
-            "n_estimators": [600],
-            "max_depth": [25],
-            "min_samples_split": [10],
-            "min_samples_leaf": [2],
+            "n_estimators": hparams["heads"]["RF"]["n_estimators"],
+            "max_depth": hparams["heads"]["RF"]["max_depth"],
+            "min_samples_split": hparams["heads"]["RF"]["min_samples_split"],
+            "min_samples_leaf": hparams["heads"]["RF"]["min_samples_leaf"],
         }
         cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_SEED)
         rf_gs = GridSearchCV(rf, rf_grid, scoring="f1_macro", cv=cv, n_jobs=-1, verbose=1, return_train_score=True)
@@ -299,11 +328,11 @@ def run_heads_on_ft_and_save(ft_clf, X_train, y_train, X_test, y_test, out_dir: 
         xgb = XGBClassifier(random_state=RANDOM_SEED, eval_metric="mlogloss",
                             tree_method="hist", objective="multi:softprob")
         xgb_grid = {
-            "n_estimators": [600],
-            "max_depth": [6],
-            "learning_rate": [0.05],
-            "subsample": [0.7],
-            "colsample_bytree": [0.7]
+            "n_estimators": hparams["heads"]["XGBoost"]["n_estimators"],
+            "max_depth": hparams["heads"]["XGBoost"]["max_depth"],
+            "learning_rate": hparams["heads"]["XGBoost"]["learning_rate"],
+            "subsample": hparams["heads"]["XGBoost"]["subsample"],
+            "colsample_bytree": hparams["heads"]["XGBoost"]["colsample_bytree"]
         }
         xgb_gs = GridSearchCV(xgb, xgb_grid, scoring="f1_macro", cv=cv, n_jobs=-1, verbose=1, return_train_score=True)
         xgb_gs.fit(Z_tr, y_train_enc)
@@ -347,6 +376,34 @@ def run_heads_on_ft_and_save(ft_clf, X_train, y_train, X_test, y_test, out_dir: 
 # ======================================================================================
 # VISUALIZATION
 # ======================================================================================
+def _scatter_2d(X2, y, title, save_path):
+    """
+    2D scatterplot helper used for UMAP visualization.
+
+    Parameters
+    ----------
+    X2 : numpy.ndarray
+        2D coordinates after UMAP or PCA.
+    y : array-like
+        Color-coded point labels.
+    title : str
+        Plot title.
+    save_path : pathlib.Path
+        Output file path.
+    """
+    plt.figure(figsize=(7,6))
+    classes = pd.Series(y).astype(str)
+    labels = classes.unique().tolist()
+    for lab in labels:
+        m = (classes == lab).values
+        plt.scatter(X2[m,0], X2[m,1], s=12, alpha=0.75, label=str(lab))
+    plt.title(title)
+    plt.xlabel("dim-1"); plt.ylabel("dim-2")
+    plt.legend(markerscale=1.5, bbox_to_anchor=(1.05, 1.0), loc="upper left")
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300)
+    plt.close()
+
 
 def visualize_ft_embeddings(ft_clf, X, y, out_dir: Path, tag="train", max_points=10000, random_state=42):
     """

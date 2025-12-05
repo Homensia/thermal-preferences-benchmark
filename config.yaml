@@ -1,0 +1,178 @@
+# ============================================================
+#  GLOBAL CONFIGURATION
+# ============================================================
+seed: 42
+
+
+# ============================================================
+#  DATA CONFIGURATION
+# ============================================================
+data:
+  raw:
+    ashrae_csv: "Data/ASHRAE_09_06_2022.csv"
+    ashrae_meta: "Data/ASHRAE_09_06_2022_metadata.xlsx"
+    moujalled: "Data/Moujalled.csv"
+    hostein: "Data/Hostein.csv"
+
+  clean:
+    ashrae: "Data/ASHRAE_2022_Clean.csv"
+    ashrae_api: "Data/ASHRAE_2022_Clean_api.csv"
+    moujalled_api: "Data/Moujalled_api.csv"
+    hostein_api: "Data/Hostein_api.csv"
+
+  features:
+    - Tair
+    - RH
+    - clo
+    - vel
+    - Âge
+    - Tout
+    - Met
+    - Trm_ema_28
+    - RHout_ema_28
+    - precip_ema_28
+    - sunshine_ema_h_28
+    - wind_ema_28
+
+    - Sexe
+    - Season
+    - Climate
+    - Building_type
+    - cooling type
+
+  targets:
+    - thermal_sensation
+    - TSV_3p
+    - thermal_preference
+
+# ============================================================
+#  WEATHER & API CONFIG
+# ============================================================
+weather:
+  ema_windows: [28]
+  days_fetch: 30
+  cache_dir: ".cache"
+
+# ============================================================
+#  MODEL SELECTION
+# ============================================================
+models:
+  classical:
+    enabled: true
+    selected: ["RandomForest", "XGBoost", "SVM"]
+
+  deep:
+    enabled: true
+    selected: ["ANN", "FTTransformer"]
+
+  hybrid:
+    enabled: true
+    heads: ["RF", "XGBoost"]
+
+  stacking:
+    enabled: true
+    base_models: ["RF", "XGB", "FT"]
+    n_folds: 5
+
+# ============================================================
+#  CLASSICAL MODELS HYPERPARAMETERS
+# ============================================================
+classical_hparams:
+
+  RandomForest:
+    n_estimators: 600
+    max_depth: 25
+    min_samples_split: 10
+    min_samples_leaf: 2
+    class_weight: "balanced_subsample"
+
+  XGBoost:
+    n_estimators: 300
+    max_depth: 6
+    learning_rate: 0.05
+    subsample: 0.7
+    colsample_bytree: 0.7
+
+  SVM:
+    kernel: ["rbf", "linear"]
+    C: [0.5, 1, 5]
+    gamma: ["scale", "auto"]
+
+# ============================================================
+#  DEEP MODELS HYPERPARAMETERS
+# ============================================================
+deep_hparams:
+
+  ANN:
+    hidden_layers: [256]
+    dropout: 0.1
+    epochs: 250
+    lr: 0.0003
+    batch_size: 1024
+    patience: 10
+
+  FTTransformer:
+    dim: 256
+    depth: 4
+    heads: 8
+    dim_head: 32
+    attn_dropout: 0.1
+    ff_dropout: 0.1
+    epochs: 250
+    lr: 0.0003
+    batch_size: 1024
+    patience: 10
+
+# ============================================================
+#  HYBRID MODELS (FT embeddings → RF/XGB)
+# ============================================================
+hybrid:
+  heads:
+    RF:
+      n_estimators: 600
+      max_depth: 25
+      min_samples_split: 10
+      min_samples_leaf: 2
+    XGBoost:
+      n_estimators: 600
+      max_depth: 6
+      learning_rate: 0.05
+      subsample : 0.7
+      colsample_bytree : 0.7
+
+# ============================================================
+#  TRANSFER LEARNING CONFIG
+# ============================================================
+transfer:
+  zero_shot: true
+  finetune:
+    ratios: [0.2, 0.8] 
+    modes: ["FT_head", "FT_full", "RF_adapt", "XGB_adapt"]
+
+  finetune_params:
+    FT_head:
+      lr: 1e-4
+      epochs: 40
+      patience: 6
+
+    FT_full:
+      lr: 5e-5
+      epochs: 40
+      patience: 6
+
+# ============================================================
+#  CROSS VALIDATION
+# ============================================================
+cross_validation:
+  folds: 5
+  shuffle: true
+
+# ============================================================
+#  FEATURE IMPORTANCE & VISUALIZATION
+# ============================================================
+visualization:
+  feature_importance: true
+  embeddings: true
+  umap:
+    n_components: 2
+    max_points: 8000
