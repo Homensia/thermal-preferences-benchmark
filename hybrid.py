@@ -27,8 +27,10 @@ from sklearn.base import clone
 import matplotlib
 from sklearn.metrics import (
     f1_score, precision_score, recall_score, accuracy_score,
-    classification_report, confusion_matrix, make_scorer
+    classification_report, confusion_matrix, make_scorer,
 )
+# Native statistical helpers shared with models.py (QWK + Wilson CI).
+from stats_utils import quadratic_weighted_kappa, wilson_ci_accuracy
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -269,13 +271,18 @@ def run_heads_on_ft_and_save(ft_clf, X_train, y_train, X_test, y_test, out_dir: 
     # ---------------------------------------------------------
     # RANDOM FOREST HEAD
     # ---------------------------------------------------------   
+    def _as_list(v):
+        # GridSearchCV.param_grid values must be list/tuple/ndarray. Accept
+        # scalars from config.yaml by wrapping them in a one-element list.
+        return v if isinstance(v, (list, tuple)) else [v]
+
     if "RF" in heads:
         rf = RandomForestClassifier(random_state=RANDOM_SEED, class_weight="balanced_subsample")
         rf_grid = {
-            "n_estimators": hparams["heads"]["RF"]["n_estimators"],
-            "max_depth": hparams["heads"]["RF"]["max_depth"],
-            "min_samples_split": hparams["heads"]["RF"]["min_samples_split"],
-            "min_samples_leaf": hparams["heads"]["RF"]["min_samples_leaf"],
+            "n_estimators": _as_list(hparams["heads"]["RF"]["n_estimators"]),
+            "max_depth": _as_list(hparams["heads"]["RF"]["max_depth"]),
+            "min_samples_split": _as_list(hparams["heads"]["RF"]["min_samples_split"]),
+            "min_samples_leaf": _as_list(hparams["heads"]["RF"]["min_samples_leaf"]),
         }
         cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_SEED)
         rf_gs = GridSearchCV(rf, rf_grid, scoring="f1_macro", cv=cv, n_jobs=-1, verbose=1, return_train_score=True)
@@ -303,18 +310,51 @@ def run_heads_on_ft_and_save(ft_clf, X_train, y_train, X_test, y_test, out_dir: 
         with open(rf_dir / f"{target_name}_{tag_prefix}_RF_test_report.json", "w") as f:
             json.dump(report_rf, f, indent=2)
 
+        # Native statistical enrichment (QWK + Wilson 95% CI on accuracy)
+        acc_rf = float(accuracy_score(y_test, y_pred_rf))
+        qwk_rf = quadratic_weighted_kappa(y_test, y_pred_rf)
+        n_total_rf = int(len(y_test))
+        n_correct_rf = int(
+            (pd.Series(y_test).reset_index(drop=True)
+             == pd.Series(y_pred_rf).reset_index(drop=True)).sum()
+        )
+        ci_low_rf, ci_high_rf = wilson_ci_accuracy(n_correct_rf, n_total_rf)
+        result_rf = {
+            "accuracy": acc_rf,
+            "accuracy_wilson_ci95_low": float(ci_low_rf),
+            "accuracy_wilson_ci95_high": float(ci_high_rf),
+            "precision_macro": float(precision_score(y_test, y_pred_rf, average="macro", zero_division=0)),
+            "recall_macro": float(recall_score(y_test, y_pred_rf, average="macro", zero_division=0)),
+            "f1_macro": float(f1_score(y_test, y_pred_rf, average="macro", zero_division=0)),
+            "f1_micro": float(f1_score(y_test, y_pred_rf, average="micro", zero_division=0)),
+            "f1_weighted": float(f1_score(y_test, y_pred_rf, average="weighted", zero_division=0)),
+            "qwk": qwk_rf,
+            "n_test": n_total_rf,
+            "n_correct": n_correct_rf,
+            "labels": [str(l) for l in labels],
+            "confusion": cm_rf.tolist(),
+            "report": report_rf,
+            "y_pred": pd.Series(y_pred_rf).tolist(),
+        }
+        with open(rf_dir / f"{target_name}_{tag_prefix}_RF_test_results.json", "w") as f:
+            json.dump(result_rf, f, indent=2)
+
         results_rows.append({
             "experiment": target_name,
             "model": f"{tag_prefix}+RF",
-            "test_accuracy": float(accuracy_score(y_test, y_pred_rf)),
-            "test_f1_macro": float(f1_score(y_test, y_pred_rf, average="macro", zero_division=0)),
-            "test_precision_macro": float(precision_score(y_test, y_pred_rf, average="macro", zero_division=0)),
-            "test_recall_macro": float(recall_score(y_test, y_pred_rf, average="macro", zero_division=0))
+            "test_accuracy": acc_rf,
+            "test_f1_macro": result_rf["f1_macro"],
+            "test_precision_macro": result_rf["precision_macro"],
+            "test_recall_macro": result_rf["recall_macro"],
+            "test_qwk": qwk_rf,
+            "test_accuracy_ci95_low": float(ci_low_rf),
+            "test_accuracy_ci95_high": float(ci_high_rf),
         })
 
         print(f"[RF sur embeddings] {target_name} — "
-        f"Acc: {accuracy_score(y_test, y_pred_rf):.4f}, "
-        f"F1_macro: {f1_score(y_test, y_pred_rf, average='macro'):.4f}")
+        f"Acc: {acc_rf:.4f} [{ci_low_rf:.3f};{ci_high_rf:.3f}], "
+        f"QWK: {qwk_rf:.4f}, "
+        f"F1_macro: {result_rf['f1_macro']:.4f}")
     
 
     # ---------------------------------------------------------
@@ -328,11 +368,11 @@ def run_heads_on_ft_and_save(ft_clf, X_train, y_train, X_test, y_test, out_dir: 
         xgb = XGBClassifier(random_state=RANDOM_SEED, eval_metric="mlogloss",
                             tree_method="hist", objective="multi:softprob")
         xgb_grid = {
-            "n_estimators": hparams["heads"]["XGBoost"]["n_estimators"],
-            "max_depth": hparams["heads"]["XGBoost"]["max_depth"],
-            "learning_rate": hparams["heads"]["XGBoost"]["learning_rate"],
-            "subsample": hparams["heads"]["XGBoost"]["subsample"],
-            "colsample_bytree": hparams["heads"]["XGBoost"]["colsample_bytree"]
+            "n_estimators": _as_list(hparams["heads"]["XGBoost"]["n_estimators"]),
+            "max_depth": _as_list(hparams["heads"]["XGBoost"]["max_depth"]),
+            "learning_rate": _as_list(hparams["heads"]["XGBoost"]["learning_rate"]),
+            "subsample": _as_list(hparams["heads"]["XGBoost"]["subsample"]),
+            "colsample_bytree": _as_list(hparams["heads"]["XGBoost"]["colsample_bytree"]),
         }
         xgb_gs = GridSearchCV(xgb, xgb_grid, scoring="f1_macro", cv=cv, n_jobs=-1, verbose=1, return_train_score=True)
         xgb_gs.fit(Z_tr, y_train_enc)
@@ -357,18 +397,51 @@ def run_heads_on_ft_and_save(ft_clf, X_train, y_train, X_test, y_test, out_dir: 
         with open(xgb_dir / f"{target_name}_{tag_prefix}_XGB_test_report.json", "w") as f:
             json.dump(report_xgb, f, indent=2)
 
+        # Native statistical enrichment (QWK + Wilson 95% CI on accuracy)
+        acc_xgb = float(accuracy_score(y_test, y_pred_xgb))
+        qwk_xgb = quadratic_weighted_kappa(y_test, y_pred_xgb)
+        n_total_xgb = int(len(y_test))
+        n_correct_xgb = int(
+            (pd.Series(y_test).reset_index(drop=True)
+             == pd.Series(y_pred_xgb).reset_index(drop=True)).sum()
+        )
+        ci_low_xgb, ci_high_xgb = wilson_ci_accuracy(n_correct_xgb, n_total_xgb)
+        result_xgb = {
+            "accuracy": acc_xgb,
+            "accuracy_wilson_ci95_low": float(ci_low_xgb),
+            "accuracy_wilson_ci95_high": float(ci_high_xgb),
+            "precision_macro": float(precision_score(y_test, y_pred_xgb, average="macro", zero_division=0)),
+            "recall_macro": float(recall_score(y_test, y_pred_xgb, average="macro", zero_division=0)),
+            "f1_macro": float(f1_score(y_test, y_pred_xgb, average="macro", zero_division=0)),
+            "f1_micro": float(f1_score(y_test, y_pred_xgb, average="micro", zero_division=0)),
+            "f1_weighted": float(f1_score(y_test, y_pred_xgb, average="weighted", zero_division=0)),
+            "qwk": qwk_xgb,
+            "n_test": n_total_xgb,
+            "n_correct": n_correct_xgb,
+            "labels": [str(l) for l in labels],
+            "confusion": cm_xgb.tolist(),
+            "report": report_xgb,
+            "y_pred": pd.Series(y_pred_xgb).tolist(),
+        }
+        with open(xgb_dir / f"{target_name}_{tag_prefix}_XGB_test_results.json", "w") as f:
+            json.dump(result_xgb, f, indent=2)
+
         results_rows.append({
             "experiment": target_name,
             "model": f"{tag_prefix}+XGB",
-            "test_accuracy": float(accuracy_score(y_test, y_pred_xgb)),
-            "test_f1_macro": float(f1_score(y_test, y_pred_xgb, average="macro", zero_division=0)),
-            "test_precision_macro": float(precision_score(y_test, y_pred_xgb, average="macro", zero_division=0)),
-            "test_recall_macro": float(recall_score(y_test, y_pred_xgb, average="macro", zero_division=0))
+            "test_accuracy": acc_xgb,
+            "test_f1_macro": result_xgb["f1_macro"],
+            "test_precision_macro": result_xgb["precision_macro"],
+            "test_recall_macro": result_xgb["recall_macro"],
+            "test_qwk": qwk_xgb,
+            "test_accuracy_ci95_low": float(ci_low_xgb),
+            "test_accuracy_ci95_high": float(ci_high_xgb),
         })
 
         print(f"[XGB sur embeddings] {target_name} — "
-        f"Acc: {accuracy_score(y_test, y_pred_xgb):.4f}, "
-        f"F1_macro: {f1_score(y_test, y_pred_xgb, average='macro'):.4f}")
+        f"Acc: {acc_xgb:.4f} [{ci_low_xgb:.3f};{ci_high_xgb:.3f}], "
+        f"QWK: {qwk_xgb:.4f}, "
+        f"F1_macro: {result_xgb['f1_macro']:.4f}")
     return results_rows
 
 

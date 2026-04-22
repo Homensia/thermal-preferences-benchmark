@@ -12,6 +12,8 @@ Fusion : indicateurs_classiques + métriques_classiques
 """
 
 from pathlib import Path
+import argparse
+import json
 import math
 import numpy as np
 import pandas as pd
@@ -19,10 +21,13 @@ from sklearn.metrics import classification_report, accuracy_score, f1_score
 
 from pythermalcomfort.models import pmv_ppd_iso, set_tmp, pet_steady, pmv_a, pmv_e
 
-BASE_CSV = "ASHRAE_2022.csv"
-ENRICHED_CSV = "ASHRAE_db2.01.1_clean_with_indicators.csv"
-SUMMARY_CSV = "resume_indicateurs_par_target_sur_test.csv"
-REPORTS_DIR = Path("results_indicateurs")
+from stats_utils import quadratic_weighted_kappa, wilson_ci_accuracy
+
+# Defaults align with the published tpb layout (ASHRAE_2022_Clean_api.csv is
+# the cleaned cohort used by models.py / transfert.py). Overridable via CLI.
+DEFAULT_BASE_CSV = "Data/ASHRAE_2022_Clean_api.csv"
+DEFAULT_RESULTS_DIR = "kfold_results_unified"
+DEFAULT_OUTPUT_DIR = "."
 
 TARGETS = ["thermal_sensation", "TSV_3p", "thermal_preference"]
 METHODS = ["pmv", "apmv", "epmv", "pts_pet", "pts_set", "apts", "epts"]
@@ -230,6 +235,11 @@ def eval_task(y_true, y_pred, labels, title, report_path=None):
     acc  = accuracy_score(y_true, y_pred)
     f1M  = f1_score(y_true, y_pred, average="macro", labels=labels, zero_division=0)
     f1mi = f1_score(y_true, y_pred, average="micro", labels=labels, zero_division=0)
+    f1w  = f1_score(y_true, y_pred, average="weighted", labels=labels, zero_division=0)
+    qwk  = quadratic_weighted_kappa(y_true, y_pred)
+    n_total = int(len(y_true))
+    n_correct = int(np.sum(np.asarray(y_true) == np.asarray(y_pred)))
+    ci_low, ci_high = wilson_ci_accuracy(n_correct, n_total)
     rep = classification_report(y_true, y_pred, labels=labels, zero_division=0)
     print(f"\n=== {title} ===")
     print(rep)
@@ -237,12 +247,57 @@ def eval_task(y_true, y_pred, labels, title, report_path=None):
         with open(report_path, "w", encoding="utf-8") as f:
             f.write(f"{title}\n\n")
             f.write(rep)
-    return {"accuracy": acc, "f1_macro": f1M, "f1_micro": f1mi}
+    return {
+        "accuracy": acc,
+        "accuracy_wilson_ci95_low": float(ci_low),
+        "accuracy_wilson_ci95_high": float(ci_high),
+        "qwk": qwk,
+        "f1_macro": f1M,
+        "f1_micro": f1mi,
+        "f1_weighted": f1w,
+        "n_test": n_total,
+        "n_correct": n_correct,
+    }
+
+
+def _load_test_indices(results_dir: Path, target: str):
+    # Preferred: splits JSON (native tpb format)
+    split_json = results_dir / target / "splits" / f"{target}_split_indices.json"
+    if split_json.exists():
+        d = json.loads(split_json.read_text())
+        return np.asarray(d["test_idx"], dtype=int), f"splits JSON ({split_json.name})"
+    # Legacy fallback: test_indices.csv
+    legacy = results_dir / target / "test_indices.csv"
+    if legacy.exists():
+        return pd.read_csv(legacy)["row_id"].to_numpy(), "legacy test_indices.csv"
+    return None, None
+
 
 if __name__ == "__main__":
-    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    ap = argparse.ArgumentParser(
+        description="Native empirical-indices pipeline (PMV/aPMV/ePMV/PTS_*)."
+    )
+    ap.add_argument("--data_csv", default=DEFAULT_BASE_CSV,
+                    help="Cleaned ASHRAE CSV (same cohort used by models.py).")
+    ap.add_argument("--results_dir", default=DEFAULT_RESULTS_DIR,
+                    help="Root containing <target>/splits/<target>_split_indices.json.")
+    ap.add_argument("--output_dir", default=DEFAULT_OUTPUT_DIR,
+                    help="Where to write the summary CSV and per-target text reports.")
+    args = ap.parse_args()
 
-    df_base = pd.read_csv(BASE_CSV)
+    results_dir = Path(args.results_dir)
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    reports_dir = output_dir / "results_indicateurs"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    enriched_csv = output_dir / "ASHRAE_db2.01.1_clean_with_indicators.csv"
+    summary_csv = output_dir / "resume_indicateurs_par_target_sur_test.csv"
+
+    print(f"[INPUT]  data_csv    = {args.data_csv}")
+    print(f"[INPUT]  results_dir = {results_dir}")
+    print(f"[OUTPUT] output_dir  = {output_dir}")
+
+    df_base = pd.read_csv(args.data_csv)
 
     df_calc = df_base.rename(columns={k: v for k, v in rename_map.items() if k in df_base.columns}).copy()
 
@@ -252,17 +307,17 @@ if __name__ == "__main__":
     df_all = pd.concat([df_base.reset_index(drop=True),
                         df_feats[add_cols].reset_index(drop=True)], axis=1)
 
-    df_all.to_csv(ENRICHED_CSV, index=False)
-    print(f"[OK] Base enrichie écrite: {ENRICHED_CSV}")
+    df_all.to_csv(enriched_csv, index=False)
+    print(f"[OK] Base enrichie écrite: {enriched_csv}")
 
     summary_rows = []
     for target in TARGETS:
-        test_idx_file = Path("kfold_results_unified") / target / "test_indices.csv"
-        if not test_idx_file.exists():
-            print(f"[WARN] indices test introuvables pour {target} -> évaluation sur TOUT le dataset.")
+        idx, src = _load_test_indices(results_dir, target)
+        if idx is None:
+            print(f"[WARN] indices test introuvables pour {target} dans {results_dir} -> évaluation sur TOUT le dataset.")
             df_eval = df_all.copy()
         else:
-            idx = pd.read_csv(test_idx_file)["row_id"].to_numpy()
+            print(f"[IDX] {target}: {len(idx)} rows from {src}")
             df_eval = df_all.loc[idx].copy()
 
         if target == "thermal_sensation":
@@ -274,7 +329,7 @@ if __name__ == "__main__":
                 res = eval_task(
                     y_true, y_pred, labels,
                     title=f"TSV7 — {m} — [{target}]",
-                    report_path=REPORTS_DIR / f"report_{target}_{m}.txt"
+                    report_path=reports_dir / f"report_{target}_{m}.txt"
                 )
                 summary_rows.append({"target": target, "method": m, **res})
 
@@ -287,7 +342,7 @@ if __name__ == "__main__":
                 res = eval_task(
                     y_true, y_pred, labels,
                     title=f"TSV3 — {m} — [{target}]",
-                    report_path=REPORTS_DIR / f"report_{target}_{m}.txt"
+                    report_path=reports_dir / f"report_{target}_{m}.txt"
                 )
                 summary_rows.append({"target": target, "method": m, **res})
 
@@ -300,10 +355,10 @@ if __name__ == "__main__":
                 res = eval_task(
                     y_true, y_pred, labels,
                     title=f"TPV — {m} — [{target}]",
-                    report_path=REPORTS_DIR / f"report_{target}_{m}.txt"
+                    report_path=reports_dir / f"report_{target}_{m}.txt"
                 )
                 summary_rows.append({"target": target, "method": m, **res})
 
-    pd.DataFrame(summary_rows).to_csv(SUMMARY_CSV, index=False)
-    print(f"\n[OK] Résumé écrit: {SUMMARY_CSV}")
-    print(f"[OK] Rapports par cible dans: {REPORTS_DIR.resolve()}")
+    pd.DataFrame(summary_rows).to_csv(summary_csv, index=False)
+    print(f"\n[OK] Résumé écrit: {summary_csv}")
+    print(f"[OK] Rapports par cible dans: {reports_dir.resolve()}")

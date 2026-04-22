@@ -221,7 +221,8 @@ def direct_eval_one_base(base_name: str,
                         df: pd.DataFrame,
                         ft_by_target: dict,
                         rf_by_target: Optional[dict] = None,
-                        xgb_by_target: Optional[dict] = None) -> None:
+                        xgb_by_target: Optional[dict] = None,
+                        output_dir: str = "external_results") -> None:
     """
     Perform zero-shot evaluation on a given external dataset.
 
@@ -245,7 +246,7 @@ def direct_eval_one_base(base_name: str,
     -----
     For FTTransformer models, labels must match the trained model's class set.
     """
-    out_root = ensure_dir(Path("external_results") / base_name / "A_direct")
+    out_root = ensure_dir(Path(output_dir) / base_name / "A_direct")
 
     for target in [t for t in TARGETS_ALL if t in df.columns]:
         X, y = df[FEATURES_ALL], df[target]
@@ -306,7 +307,8 @@ def finetune_eval_one_base(base_name: str,
                           epochs: int = 40,
                           patience: int = 6,
                           modes=["all"],
-                          seed: int = RANDOM_SEED) -> None:
+                          seed: int = RANDOM_SEED,
+                          output_dir: str = "external_results") -> None:
     """
     Perform fine-tuning evaluation on an external dataset.
 
@@ -351,7 +353,7 @@ def finetune_eval_one_base(base_name: str,
         Results are written to output folders.
     """
     out_root = ensure_dir(
-        Path("external_results") / base_name / 
+        Path(output_dir) / base_name /
         f"B_finetune_{int(dev_ratio*100)}-{int((1-dev_ratio)*100)}"
     )
 
@@ -453,6 +455,7 @@ def run_external_suite(
     finetune_dev_ratios: Tuple[float, ...] = (0.2, 0.8),
     modes=["all"],
     seed: int = RANDOM_SEED,
+    output_dir: str = "external_results",
 ) -> None:
     """
     Run the full external evaluation pipeline on both datasets.
@@ -503,16 +506,17 @@ def run_external_suite(
         print(f"\n{'='*80}")
         print(f"EVALUATING {base}")
         print(f"{'='*80}")
-        
+
         # Zero-shot
         print(f"\n--- Zero-shot evaluation ---")
         direct_eval_one_base(
             base, Moujalled,
             best_ft_by_target,
             best_rf_by_target,
-            best_xgb_by_target
+            best_xgb_by_target,
+            output_dir=output_dir,
         )
-        
+
         # Fine-tuning
         rf_p, xgb_p = _protos(Moujalled)
         for ratio in finetune_dev_ratios:
@@ -524,7 +528,8 @@ def run_external_suite(
                 rf_proto=rf_p,
                 xgb_proto=xgb_p,
                 modes=modes,
-                seed=seed
+                seed=seed,
+                output_dir=output_dir,
             )
 
     # --- Hostein evaluation ---
@@ -533,16 +538,17 @@ def run_external_suite(
         print(f"\n{'='*80}")
         print(f"EVALUATING {base}")
         print(f"{'='*80}")
-        
+
         # Zero-shot
         print(f"\n--- Zero-shot evaluation ---")
         direct_eval_one_base(
             base, Hostein,
             best_ft_by_target,
             best_rf_by_target,
-            best_xgb_by_target
+            best_xgb_by_target,
+            output_dir=output_dir,
         )
-        
+
         # Fine-tuning
         rf_p, xgb_p = _protos(Hostein)
         for ratio in finetune_dev_ratios:
@@ -554,7 +560,8 @@ def run_external_suite(
                 rf_proto=rf_p,
                 xgb_proto=xgb_p,
                 modes=modes,
-                seed=seed
+                seed=seed,
+                output_dir=output_dir,
             )
 
 
@@ -661,6 +668,26 @@ def parse_args():
         help="Set to 1 to skip fine-tuning stage."
     )
     p.add_argument(
+        "--models_dir",
+        type=str,
+        default="kfold_results_unified",
+        help=(
+            "Directory containing the joblib pickles of models trained on "
+            "ASHRAE (best_ft_by_target.joblib, best_rf_by_target.joblib, "
+            "best_xgb_by_target.joblib). Defaults to the in-domain output "
+            "directory of models.py."
+        ),
+    )
+    p.add_argument(
+        "--output_dir",
+        type=str,
+        default="external_results",
+        help=(
+            "Directory where external evaluation results are written "
+            "(default: external_results)."
+        ),
+    )
+    p.add_argument(
         "-v", "--verbose",
         action="store_true",
         help="Enable verbose logging."
@@ -694,10 +721,13 @@ def main():
     setup_logging(args.verbose)
     set_all_seeds(args.seed)
 
-    # Use the same output directory as models.py
-    models_dir = Path(base_out)
+    # Paths (CLI-overridable: --models_dir, --output_dir).
+    models_dir = Path(args.models_dir)
+    output_dir = args.output_dir
     if not models_dir.exists():
         raise FileNotFoundError(f"Models directory not found: {models_dir}")
+    print(f"   Models dir: {models_dir}")
+    print(f"   Output dir: {output_dir}")
 
     # Load external datasets
     print("\n📂 Loading external datasets...")
@@ -718,8 +748,10 @@ def main():
     # Run evaluations
     if args.zero_shot_only:
         print("\n🎯 Running zero-shot evaluation only...")
-        direct_eval_one_base("Moujalled", df_Moujalled, ft_by_t, rf_by_t, xgb_by_t)
-        direct_eval_one_base("Hostein", df_Hostein, ft_by_t, rf_by_t, xgb_by_t)
+        direct_eval_one_base("Moujalled", df_Moujalled, ft_by_t, rf_by_t, xgb_by_t,
+                             output_dir=output_dir)
+        direct_eval_one_base("Hostein", df_Hostein, ft_by_t, rf_by_t, xgb_by_t,
+                             output_dir=output_dir)
     else:
         ratios = [float(x) for x in args.finetune_ratios.split(",") if x.strip()]
         print(f"\n🎯 Running full evaluation suite with ratios: {ratios}")
@@ -732,6 +764,7 @@ def main():
             finetune_dev_ratios=tuple(ratios),
             modes=args.finetune_modes,
             seed=args.seed,
+            output_dir=output_dir,
         )
 
     print("\n" + "="*80)
