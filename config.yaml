@@ -17,9 +17,11 @@ data:
   clean:
     ashrae: "Data/ASHRAE_2022_Clean.csv"
     ashrae_api: "Data/ASHRAE_2022_Clean_api.csv"
+    ashrae_2018_v2: "Data/ASHRAE_2018_v2.csv"
     moujalled_api: "Data/Moujalled_api.csv"
     hostein_api: "Data/Hostein_api.csv"
 
+  # Phase 2 / Phase 3 feature space (17 features: 12 core + 5 EMA weather descriptors)
   features:
     - Tair
     - RH
@@ -39,6 +41,31 @@ data:
     - Climate
     - Building_type
     - cooling type
+
+  # Phase 1 feature space (12 core features, Haghirad-compatible)
+  features_12:
+    - Tair
+    - RH
+    - clo
+    - vel
+    - Âge
+    - Tout
+    - Met
+
+    - Sexe
+    - Season
+    - Climate
+    - Building_type
+    - cooling type
+
+  # Dataset registry: maps --dataset CLI tag to (csv_path, feature_set)
+  datasets:
+    ASHRAE_2022:
+      csv: "Data/ASHRAE_2022_Clean_api.csv"
+      features: features       # 17 variables (Phase 2 default)
+    ASHRAE_2018_v2:
+      csv: "Data/ASHRAE_2018_v2.csv"
+      features: features_12    # 12 variables (Phase 1, Haghirad)
 
   targets:
     - thermal_sensation

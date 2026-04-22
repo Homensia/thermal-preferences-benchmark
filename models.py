@@ -37,7 +37,12 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler, LabelEncoder
 from sklearn.metrics import (
     f1_score, precision_score, recall_score, accuracy_score,
-    classification_report, confusion_matrix, make_scorer
+    classification_report, confusion_matrix, make_scorer,
+)
+from stats_utils import (
+    quadratic_weighted_kappa,
+    wilson_ci_accuracy,
+    pairwise_wilcoxon,
 )
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
@@ -399,6 +404,15 @@ def eval_on_test(model, X_test, y_test, name="model", labels_order=None, target_
     f1w  = float(f1_score(y_test, y_pred, average="weighted",zero_division=0))
     rec  = float(recall_score(y_test, y_pred, average="macro", zero_division=0))
 
+    # Native statistical enrichment (QWK + Wilson 95% CI on accuracy)
+    qwk = quadratic_weighted_kappa(y_test, y_pred)
+    n_total = int(len(y_test))
+    n_correct = int(
+        (pd.Series(y_test).reset_index(drop=True)
+         == pd.Series(y_pred).reset_index(drop=True)).sum()
+    )
+    ci_low, ci_high = wilson_ci_accuracy(n_correct, n_total)
+
     report = classification_report(
         y_test, y_pred,
         labels=labels_order,
@@ -410,6 +424,24 @@ def eval_on_test(model, X_test, y_test, name="model", labels_order=None, target_
     per_class_f1 = {lbl: report[str(lbl)]["f1-score"] for lbl in labels_order if str(lbl) in report}
     cm = confusion_matrix(y_test, y_pred, labels=labels_order)
 
+    result = {
+        "accuracy": acc,
+        "accuracy_wilson_ci95_low": float(ci_low),
+        "accuracy_wilson_ci95_high": float(ci_high),
+        "precision_macro": prec,
+        "recall_macro": rec,
+        "f1_macro": f1m,
+        "f1_micro": f1mi,
+        "f1_weighted": f1w,
+        "qwk": qwk,
+        "n_test": n_total,
+        "n_correct": n_correct,
+        "labels": [str(l) for l in labels_order],
+        "confusion": cm.tolist(),
+        "report": report,
+        "y_pred": pd.Series(y_pred).tolist(),
+    }
+
     if save_dir is not None:
         save_dir.mkdir(parents=True, exist_ok=True)
         cm_df = pd.DataFrame(cm, index=labels_order, columns=labels_order)
@@ -418,28 +450,18 @@ def eval_on_test(model, X_test, y_test, name="model", labels_order=None, target_
                               save_path=save_dir / f"{name}_confusion_matrix.png")
         with open(save_dir / f"{name}_test_report.json","w") as f:
             json.dump(report, f, indent=2)
-
-    
+        # Native test_results.json — self-contained for post-hoc tools.
+        with open(save_dir / f"{name}_test_results.json", "w") as f:
+            json.dump(result, f, indent=2)
 
     print(f"\n--- TEST FINAL — {name} ---")
-    print(f"Acc: {acc:.4f} | F1_macro: {f1m:.4f}| F1_micro: {f1mi:.4f}| F1_weighted: {f1w:.4f}")
+    print(f"Acc: {acc:.4f} [{ci_low:.3f};{ci_high:.3f}] | QWK: {qwk:.4f} | "
+          f"F1_macro: {f1m:.4f}| F1_micro: {f1mi:.4f}| F1_weighted: {f1w:.4f}")
     print("F1 par classe   :", {str(k): f"{v:.3f}" for k, v in per_class_f1.items()})
     print("\n--- Rapport détaillé ---")
     print(classification_report(y_test, y_pred, zero_division=0))
 
-
-    return {
-        "accuracy": acc,
-        "precision_macro": prec,
-        "recall_macro": rec,
-        "f1_macro": f1m,
-        "f1_micro": f1mi,
-        "f1_weighted": f1w,
-        "labels": [str(l) for l in labels_order], 
-        "confusion": cm.tolist(),                  
-        "report": report,
-        "y_pred": pd.Series(y_pred).tolist()
-    }
+    return result
 
 
 
@@ -529,7 +551,8 @@ def run_experiment_for_target(
     run_deep = ("deep" in args.models) or \
            ("all" in args.models and args.classical_models == ["all"])
 
-    run_hybrid = ("hybrid" in args.models)
+    run_hybrid = ("hybrid" in args.models) or \
+                 ("all" in args.models and args.hybrid_heads == ["all"])
 
 
     
@@ -697,10 +720,24 @@ def run_experiment_for_target(
     # ==================================================================================
     
     if per_model_fold_summaries:
-        pd.concat(per_model_fold_summaries, ignore_index=True).to_csv(
+        all_fold_df = pd.concat(per_model_fold_summaries, ignore_index=True)
+        all_fold_df.to_csv(
             exp_dir / f"{TARGET}_ALLMODELS_fold_summary.csv", index=False
         )
-    
+
+        # Native pairwise Wilcoxon signed-rank tests (Bonferroni-corrected)
+        # across CV folds on val_accuracy; saved as a first-class artefact.
+        try:
+            pairwise_wilcoxon(
+                fold_summary_df=all_fold_df,
+                target=TARGET,
+                metric="val_accuracy",
+                alpha=0.05,
+                save_path=exp_dir / f"{TARGET}_ALLMODELS_pairwise_wilcoxon.csv",
+            )
+        except Exception as exc:
+            print(f"[WARN] pairwise_wilcoxon failed for {TARGET}: {exc}")
+
     if per_model_stats:
         pd.concat(per_model_stats, ignore_index=True).to_csv(
             exp_dir / f"{TARGET}_ALLMODELS_fold_statistics.csv", index=False
@@ -843,6 +880,15 @@ Examples:
         help="Number of CV folds (default: 10)"
     )
     
+    # Dataset selection (Phase 1 replication uses ASHRAE_2018_v2, Phase 2 uses ASHRAE_2022)
+    p.add_argument(
+        "--dataset",
+        type=str,
+        choices=["ASHRAE_2022", "ASHRAE_2018_v2"],
+        default="ASHRAE_2022",
+        help="Which dataset to train on (default: ASHRAE_2022, 17 features). Use ASHRAE_2018_v2 for Phase 1 Haghirad reproduction (12 features)."
+    )
+
     # Output
     p.add_argument(
         "--output_dir",
@@ -903,11 +949,32 @@ def main():
     # ==================================================================================
     
     print("📂 Loading and validating data...")
-    
+
     Path("data_validation_reports").mkdir(parents=True, exist_ok=True)
+
+    # Rebind global FEATURES_ALL so downstream code (split_*, ensure_dir, etc.) uses the right set
+    global FEATURES_ALL
+
+    # Resolve dataset tag → csv path + feature list from config.yaml registry
+    dataset_registry = CONFIG["data"].get("datasets", {})
+    ds_cfg = dataset_registry.get(args.dataset)
+    if ds_cfg is None:
+        # Fallback for legacy configs without a registry: use default ASHRAE_2022 features
+        csv_path = "Data/ASHRAE_2022_Clean_api.csv"
+        features_for_run = FEATURES_ALL
+    else:
+        csv_path = ds_cfg["csv"]
+        features_key = ds_cfg.get("features", "features")
+        features_for_run = CONFIG["data"][features_key]
+
+    FEATURES_ALL = features_for_run
+
+    print(f"   Dataset: {args.dataset}  ({csv_path})")
+    print(f"   Features ({len(features_for_run)}): {features_for_run}")
+
     loader = UnifiedDataLoader(FEATURES_ALL, TARGETS_ALL)
-    DATA = loader.load_and_validate("Data/ASHRAE_2022_Clean_api.csv", "ASHRAE")
-    loader.save_statistics(Path("data_validation_reports/ashrae_report.json"))
+    DATA = loader.load_and_validate(csv_path, args.dataset)
+    loader.save_statistics(Path(f"data_validation_reports/{args.dataset.lower()}_report.json"))
 
     # ==================================================================================
     # EXPERIMENT SETUP
