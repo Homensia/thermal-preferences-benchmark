@@ -218,3 +218,23 @@ ASHRAE_2022_Clean_api.csv
 .cache.sqlite
 analysis_results_distributions
 Votes_analysis
+
+# Local experiment reruns (smoke tests, dated rerun folders, e.g. rerun_2026-04-21/)
+rerun_*/
+
+# Local virtualenv bundled in the repo
+thermal_comfort_venv/
+
+# Jupyter notebook checkpoints & generated figures under analysis/
+analysis/*.ipynb_checkpoints/
+*.ipynb_checkpoints/
+
+# Saved model binaries dropped outside result folders
+*.joblib
+*.pkl
+*.pt
+*.pth
+
+# OS cruft
+.DS_Store
+Thumbs.db
