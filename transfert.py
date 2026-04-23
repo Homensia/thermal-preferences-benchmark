@@ -354,7 +354,7 @@ def finetune_eval_one_base(base_name: str,
     """
     out_root = ensure_dir(
         Path(output_dir) / base_name /
-        f"B_finetune_{int(dev_ratio*100)}-{int((1-dev_ratio)*100)}"
+        f"B_finetune_{int(dev_ratio*100)}-{100 - int(dev_ratio*100)}"
     )
 
     for target in [t for t in TARGETS_ALL if t in df.columns]:
