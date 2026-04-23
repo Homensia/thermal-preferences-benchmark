@@ -168,7 +168,7 @@ def make_heatmap(mat: pd.DataFrame, out_path: Path) -> None:
             ax.text(
                 j,
                 i,
-                f"{100 * v:.0f}",
+                f"{100 * v:.0f}%",
                 ha="center",
                 va="center",
                 fontsize=8,
