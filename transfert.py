@@ -129,14 +129,15 @@ def make_rf_xgb_protos(num_cols, cat_cols, seed: int = RANDOM_SEED):
     """
     pp = make_preprocess(num_cols, cat_cols)
     
+    rf_hp = CONFIG["classical_hparams"]["RandomForest"]
     rf_proto = Pipeline([
         ("pp", pp),
         ("clf", RandomForestClassifier(
-            n_estimators=600,
-            max_depth=25,
-            min_samples_split=10,
-            min_samples_leaf=2,
-            class_weight="balanced_subsample",
+            n_estimators=rf_hp["n_estimators"],
+            max_depth=rf_hp["max_depth"],
+            min_samples_split=rf_hp["min_samples_split"],
+            min_samples_leaf=rf_hp["min_samples_leaf"],
+            class_weight=rf_hp.get("class_weight", None),
             random_state=seed
         ))
     ])

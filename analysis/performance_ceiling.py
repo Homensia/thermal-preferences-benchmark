@@ -133,10 +133,16 @@ def load_all_results(results_dir: Path) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _random_baseline(results_dir: Path, target: str) -> float:
+def prior_weighted_baseline(results_dir: Path, target: str) -> float:
     """Baseline accuracy under random prediction weighted by class priors:
     sum_k p_k^2 with p_k from the RF confusion matrix row totals (test set).
-    Falls back to the first available model if RF is missing."""
+    Falls back to the first available model if RF is missing.
+
+    This is the single source of truth for the prior-weighted random
+    baseline across the repo. Other post-processing scripts (notably
+    `analysis/finalize_paper_rerun.py`) import it from here rather than
+    re-implementing or hard-coding the values.
+    """
     target_dir = results_dir / target
     for model in ("RandomForest",) + STANDARD_MODELS:
         cm_path = target_dir / model / f"{target}_{model}_confusion_matrix.csv"
@@ -257,7 +263,7 @@ def main():
         if df_t.empty:
             ax.set_visible(False)
             continue
-        baseline = _random_baseline(results_dir, target)
+        baseline = prior_weighted_baseline(results_dir, target)
         _panel(
             ax,
             df_t,

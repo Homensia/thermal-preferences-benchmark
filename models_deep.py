@@ -609,13 +609,14 @@ def get_torch_models(num_cols, cat_cols, deep_hparams, seed=RANDOM_SEED):
             ANNClassifier(
         num_cols=num_cols,
         cat_cols=cat_cols,
-        hidden=deep_hparams["ANN"]["hidden_layers"],    
+        hidden=deep_hparams["ANN"]["hidden_layers"],
         dropout=deep_hparams["ANN"]["dropout"],
         lr=deep_hparams["ANN"]["lr"],
         batch_size=deep_hparams["ANN"]["batch_size"],
         patience=deep_hparams["ANN"]["patience"],
         random_state=seed,
-        focal_gamma=2.0,
+        focal_gamma=deep_hparams["ANN"].get("focal_gamma", None),
+        class_weights=deep_hparams["ANN"].get("class_weights", None),
         record_curves=True
     ),
             {
@@ -641,7 +642,8 @@ def get_torch_models(num_cols, cat_cols, deep_hparams, seed=RANDOM_SEED):
             batch_size=deep_hparams["FTTransformer"]["batch_size"],
             patience=deep_hparams["FTTransformer"]["patience"],
             random_state=seed,
-            focal_gamma=2.0,
+            focal_gamma=deep_hparams["FTTransformer"].get("focal_gamma", None),
+            class_weights=deep_hparams["FTTransformer"].get("class_weights", None),
             record_curves=True
             ),
             {

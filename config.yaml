@@ -107,11 +107,11 @@ models:
 classical_hparams:
 
   RandomForest:
-    n_estimators: 600
+    n_estimators: 225
     max_depth: 25
     min_samples_split: 10
     min_samples_leaf: 2
-    class_weight: "balanced_subsample"
+    class_weight: null
 
   XGBoost:
     n_estimators: 300
@@ -137,6 +137,8 @@ deep_hparams:
     lr: 0.0003
     batch_size: 1024
     patience: 10
+    focal_gamma: null
+    class_weights: null
 
   FTTransformer:
     dim: 256
@@ -149,6 +151,8 @@ deep_hparams:
     lr: 0.0003
     batch_size: 1024
     patience: 10
+    focal_gamma: null
+    class_weights: null
 
 # ============================================================
 #  HYBRID MODELS (FT embeddings → RF/XGB)
@@ -160,6 +164,7 @@ hybrid:
       max_depth: 25
       min_samples_split: 10
       min_samples_leaf: 2
+      class_weight: null
     XGBoost:
       n_estimators: 600
       max_depth: 6

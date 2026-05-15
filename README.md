@@ -387,10 +387,19 @@ The script computes a complete suite of comfort indices:
 
 
 ## 📊 Phase 4 – Data Distribution & Vote Consistency Analyses
-### 1 Train/Test Distribution Analysis 
 
-File: analysis/train_test_compraison.ipynb 
-📁 Output folder: analysis/analysis_results_distributions/
+These two notebooks support the manuscript's data-quality and noise-floor
+discussions (§3 / Discussion 4.4). They are **not** part of the five-command
+pipeline described in *Reproducing the B&E paper* below; they read the
+splits and predictions produced by `models.py` and add their own analyses.
+Run them in a Jupyter environment, or non-interactively with
+`jupyter nbconvert --to notebook --execute --inplace analysis/<notebook>.ipynb`,
+*after* `models.py` has produced `kfold_results_unified/<target>/splits/`.
+
+### 1 Train/Test Distribution Analysis
+
+File: `analysis/train_test_comparaison.ipynb`
+📁 Output folder: `analysis/analysis_results_distributions/`
 
 This analysis checks whether the train and test splits used for ML training are statistically consistent.
 It compares:
@@ -399,10 +408,13 @@ It compares:
 ✔ numerical feature ranges (mean, std, min/max shifts)
 ✔ divergence patterns between train and test
 
-
+Per-target CSV/PNG/JSON summaries land under
+`analysis/analysis_results_distributions/<target>/`, with an aggregated
+`global_summary.json` at the top of that folder.
 
 ### 2 Context-Based Votes Consistency Analysis
-File : analysis/context_votes.ipynb
+
+File: `analysis/context_votes.ipynb`
 
 ✔ Cas A — Exact Same Context
 
@@ -429,3 +441,86 @@ Similarity based on tolerance thresholds (±1°C, ±5% RH, ±0.3 m/s…).
 For each person, compare vote with the closest real-world neighbor in the full feature space.
 This provides the upper bound of predictability (noise floor) for ML models
 📁 Output folder: analysis/Votes_analysis/analysis_results_knn_neighbor/
+
+Each case study writes `global_summary.json`, `groups_identical.json` and
+`groups_different.json` to its output folder. Case C's primary agreement
+rate (≈ 0.43 / 0.56 / 0.59 on TSV-7 / TSV-3 / TPV in the ASHRAE-2022 full
+data) is the NN-agreement ceiling drawn as a dashed red line in
+`regenerated_figures/performance_ceiling.pdf`.
+
+
+## 📑 Reproducing the B&E paper
+
+The current state of this repository — `config.yaml` together with `models_classic.py`, `models_deep.py`, `hybrid.py`, `transfert.py`, `indicateurs_classiques.py` and `analysis/haghirad_reproduction.py` — produces the figures published in Grayaa et al. 2026, *A Multi-Dataset Benchmark for Indoor Thermal Comfort Prediction* (Building and Environment), under the **no-reweighting regime** announced in §2.4.3: no `class_weight`, no `scale_pos_weight`, no `sample_weight`, no Focal Loss, no Random Over Sampling. Class imbalance is handled exclusively by stratified splits and stratified folds.
+
+### Prerequisites
+- Python 3.12, `torch==2.7.0+cu128`, a CUDA-compatible GPU recommended (tested on an NVIDIA RTX 3090 / driver 570.207 / CUDA 12.8).
+- Without a GPU: classical models (RF, XGB, SVM) and ANN still complete on CPU; FT-Transformer is not recommended on CPU (>30 h on the full dataset).
+- Datasets in `Data/`: `ASHRAE_2022_Clean_api.csv`, `ASHRAE_2018_v2.csv`, `Moujalled_api.csv`, `Hostein_api.csv`.
+
+### Full pipeline (five commands, ~10–13 h on a single GPU)
+
+```bash
+# Phase 1 — Haghirad reproduction + 216-cell diagnostic factorial (RF, ASHRAE-2018, 12 features)
+python3 analysis/haghirad_reproduction.py \
+    --datasets all --encodings all \
+    --output_dir rerun_2026-04-28_no_reweighting/phase1_haghirad_grid
+
+# Phase 2 in-domain (ASHRAE-2022, 17 features) — all algorithms in one shot
+python3 models.py \
+    --dataset ASHRAE_2022 \
+    --output_dir rerun_2026-04-28_no_reweighting/phase2_indomain
+
+# Phase 2 empirical baselines (PMV, aPMV, SET, PET, PTS_*) on the same test split
+python3 indicateurs_classiques.py \
+    --data_csv Data/ASHRAE_2022_Clean_api.csv \
+    --results_dir rerun_2026-04-28_no_reweighting/phase2_indomain \
+    --output_dir rerun_2026-04-28_no_reweighting/phase2_baselines
+
+# Phase 3 — direct (zero-shot) + adaptive (fine-tune 20-80 + 80-20) transfer
+python3 transfert.py \
+    --models_dir rerun_2026-04-28_no_reweighting/phase2_indomain \
+    --output_dir rerun_2026-04-28_no_reweighting/phase3
+
+# Post-processing — SUMMARY.md, audit_log.json, regenerated LaTeX tables, performance ceiling figure
+python3 analysis/finalize_paper_rerun.py \
+    --rerun_dir rerun_2026-04-28_no_reweighting
+```
+
+### Reviewer flexibility — phase or algorithm at a time
+
+Each script is self-contained and can be run on its own.
+
+```bash
+# Phase 1 only (ASHRAE-2018, no Phase 2/3 dependency)
+python3 analysis/haghirad_reproduction.py --datasets all --encodings all --output_dir <out>
+
+# Phase 2 — single model
+python3 models.py --dataset ASHRAE_2022 --models classical --classical_models RandomForest --output_dir <out>
+python3 models.py --dataset ASHRAE_2022 --models classical --classical_models XGBoost     --output_dir <out>
+python3 models.py --dataset ASHRAE_2022 --models classical --classical_models SVM         --output_dir <out>
+python3 models.py --dataset ASHRAE_2022 --models deep      --deep_models ANN              --output_dir <out>
+python3 models.py --dataset ASHRAE_2022 --models deep      --deep_models FTTransformer    --output_dir <out>
+python3 models.py --dataset ASHRAE_2022 --models hybrid    --hybrid_heads RF              --output_dir <out>
+python3 models.py --dataset ASHRAE_2022 --models hybrid    --hybrid_heads XGBoost         --output_dir <out>
+
+# Phase 2 — single target (e.g. TSV-7 only)
+python3 models.py --dataset ASHRAE_2022 --targets thermal_sensation --output_dir <out>
+
+# Phase 3 — single cohort, single regime (Moujalled, direct only) — controlled via transfert.py CLI flags
+python3 transfert.py --models_dir <phase2_out> --output_dir <out>   # see --help for selective flags
+```
+
+### Sanity checks
+
+| Check | Expected | Source artefact |
+|---|---|---|
+| RF Phase 2 hold-out test, TSV-7 | accuracy ∈ \[0.50, 0.53\] | `phase2_indomain/thermal_sensation/RandomForest/thermal_sensation__RandomForest_test_results.json` |
+| Phase 1 grid `Haghirad_NotOpt_NoCW × label × ASHRAE_2022` | accuracy ≈ 0.516 ± 0.01 | `phase1_haghirad_grid/experiment_grid_full.csv` |
+| Phase 1 grid `HighCap_BalSub × ROS=False × onehot × ASHRAE_2018` (Haghirad replica) | accuracy ≈ 0.521 ± 0.005 | same CSV |
+| Phase 3 direct RF Moujalled TSV-7 | accuracy < 0.30 (domain shift) | `phase3/Moujalled/A_direct/thermal_sensation/RandomForest/...test_results.json` |
+| Reproducibility | bit-exact across two independent runs (`seed=42` everywhere) | any `test_results.json` |
+
+### Nomenclature
+
+The configuration **HighCap** (`n_estimators=600`, `max_depth=25`, `min_samples_split=10`, `min_samples_leaf=2`) corresponds to the *high-capacity family* in the manuscript. The earlier archive `rerun_2026-04-23_haghirad_grid/` (weighted regime, kept for historical comparison only) refers to this same configuration by the internal name *TPB*.

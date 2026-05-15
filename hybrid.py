@@ -277,7 +277,10 @@ def run_heads_on_ft_and_save(ft_clf, X_train, y_train, X_test, y_test, out_dir: 
         return v if isinstance(v, (list, tuple)) else [v]
 
     if "RF" in heads:
-        rf = RandomForestClassifier(random_state=RANDOM_SEED, class_weight="balanced_subsample")
+        rf = RandomForestClassifier(
+            random_state=RANDOM_SEED,
+            class_weight=hparams["heads"]["RF"].get("class_weight", None),
+        )
         rf_grid = {
             "n_estimators": _as_list(hparams["heads"]["RF"]["n_estimators"]),
             "max_depth": _as_list(hparams["heads"]["RF"]["max_depth"]),
