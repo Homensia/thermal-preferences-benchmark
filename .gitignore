@@ -220,7 +220,15 @@ analysis_results_distributions
 Votes_analysis
 
 # Local experiment reruns (smoke tests, dated rerun folders, e.g. rerun_2026-04-21/)
+# and their zipped archives — regenerated locally, never committed.
 rerun_*/
+rerun_*.zip
+
+# Editorial / internal manuscript-revision tooling — kept with the manuscript,
+# not part of the published reproducibility surface. The reviewer-facing check is
+# analysis/verify_paper_tables.py (+ analysis/paper_values.csv), which ARE tracked.
+REVISION_NUMBERS.md
+analysis/generate_revision_numbers.py
 
 # Local virtualenv bundled in the repo
 thermal_comfort_venv/
