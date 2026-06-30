@@ -14,7 +14,7 @@ It does NOT retrain the FTTransformer — deterministic, ~1-2 min per target.
 Usage
 -----
     python run_hybrid_only.py \\
-        --results_dir rerun_2026-04-21/kfold_results_unified
+        --results_dir rerun_2026-04-28_no_reweighting/phase2_indomain
 """
 from __future__ import annotations
 

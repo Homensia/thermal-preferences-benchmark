@@ -13,10 +13,11 @@ et al. 2024:
   = 216 runs
 
 All runs use the canonical 12-variable Haghirad feature space and the
-pre-saved 80/20 train/test split seed=42 from the canonical reruns
-(`rerun_2026-04-21_phase1/` for 2018, `rerun_2026-04-21/` for 2022) so
-that `HighCap_BalSub_NoROS` reproduces the published Phase 1 accuracies
-bit-for-bit.
+frozen 80/20 train/test split (seed=42) committed under `splits/<dataset>/`
+so that `HighCap_BalSub_NoROS` reproduces the published Phase 1 accuracies
+bit-for-bit from a fresh clone — without depending on any prior rerun. If a
+frozen split is absent, the split is regenerated deterministically
+(`StratifiedShuffleSplit(test_size=0.2, random_state=42)`).
 
 The "HighCap" hp family (n_estimators=600, max_depth=25, min_samples_split=10,
 min_samples_leaf=2) corresponds to the high-capacity family of the manuscript;
@@ -63,6 +64,7 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
 )
+from sklearn.model_selection import StratifiedShuffleSplit
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -85,11 +87,11 @@ CATEGORICAL_COLS = {"Sexe", "Season", "Climate", "Building_type", "cooling type"
 DATASET_REGISTRY = {
     "ASHRAE_2018": {
         "csv": "Data/ASHRAE_2018_v2.csv",
-        "splits_dir": "rerun_2026-04-21_phase1/kfold_results_unified",
+        "splits_dir": "splits/ASHRAE_2018",
     },
     "ASHRAE_2022": {
         "csv": "Data/ASHRAE_2022_Clean_api.csv",
-        "splits_dir": "rerun_2026-04-21/kfold_results_unified",
+        "splits_dir": "splits/ASHRAE_2022",
     },
 }
 
@@ -179,14 +181,43 @@ def load_cohort(csv_path: Path, features: list[str]) -> pd.DataFrame:
     return df
 
 
-def load_split(splits_dir: Path, target: str) -> tuple[np.ndarray, np.ndarray]:
-    path = splits_dir / target / "splits" / f"{target}_split_indices.json"
-    if not path.exists():
-        raise FileNotFoundError(f"Missing split file: {path}")
-    splits = json.loads(path.read_text())
-    return (
-        np.asarray(splits["train_idx"], dtype=int),
-        np.asarray(splits["test_idx"], dtype=int),
+def load_split(
+    splits_dir: Path, target: str, y: "np.ndarray | None" = None
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return (train_idx, test_idx) for `target`.
+
+    Looks for a frozen split JSON in two layouts — the flat committed fixture
+    `splits/<dataset>/<target>_split_indices.json` and the nested rerun layout
+    `<target>/splits/<target>_split_indices.json`. If none is found and `y` is
+    provided, the split is regenerated deterministically with
+    `StratifiedShuffleSplit(test_size=0.2, random_state=42)` (the same scheme as
+    Phase 2), so a fresh clone never hard-fails.
+    """
+    candidates = (
+        splits_dir / f"{target}_split_indices.json",
+        splits_dir / target / "splits" / f"{target}_split_indices.json",
+    )
+    for path in candidates:
+        if path.exists():
+            splits = json.loads(path.read_text())
+            return (
+                np.asarray(splits["train_idx"], dtype=int),
+                np.asarray(splits["test_idx"], dtype=int),
+            )
+    if y is not None:
+        sss = StratifiedShuffleSplit(
+            n_splits=1, test_size=0.2, random_state=42
+        )
+        train_idx, test_idx = next(sss.split(np.zeros(len(y)), y))
+        print(
+            f"  [WARN] no frozen split for '{target}' under {splits_dir}; "
+            f"regenerated deterministically (StratifiedShuffleSplit, seed=42)."
+        )
+        return np.asarray(train_idx, dtype=int), np.asarray(test_idx, dtype=int)
+    raise FileNotFoundError(
+        f"No split file for '{target}' under {splits_dir} "
+        f"(looked for flat and nested layouts) and no labels supplied for the "
+        f"deterministic fallback."
     )
 
 
@@ -641,7 +672,7 @@ def build_readme(grid: pd.DataFrame) -> str:
         "## Canonical sanity check",
         "",
         "`HighCap_BalSub_NoROS` × `thermal_sensation` × `onehot` × `ASHRAE_2018` must match",
-        "the canonical Phase 1 rerun (`rerun_2026-04-21_phase1/`) accuracies:",
+        "the published Phase 1 accuracies (frozen split `splits/ASHRAE_2018/`):",
         "0.521 / 0.636 / 0.691 on TSV-7 / TSV-3 / TPV.",
         "",
         "## Quick extract",
@@ -746,7 +777,9 @@ def main() -> None:
                     )
                     for target, target_label in TARGETS:
                         counter += 1
-                        train_idx, test_idx = load_split(splits_dir, target)
+                        train_idx, test_idx = load_split(
+                            splits_dir, target, y=df[target].to_numpy()
+                        )
                         run = run_one(
                             df=df,
                             features=features,

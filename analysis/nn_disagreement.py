@@ -37,8 +37,9 @@ Outputs (one JSON per target + one summary CSV):
 Usage
 -----
     python analysis/nn_disagreement.py \\
-        --results_dir rerun_2026-04-21/kfold_results_unified \\
-        --output_dir rerun_2026-04-21
+        --scope full --features_key features_12 \\
+        --data_csv Data/ASHRAE_2022_Clean_api.csv \\
+        --output_dir rerun_2026-04-28_no_reweighting/diagnostics/nn_ashrae_2022
 
 Assumes the raw cohort CSV (Data/ASHRAE_2022_Clean_api.csv by default) is
 reachable from the cwd in which the script runs.
