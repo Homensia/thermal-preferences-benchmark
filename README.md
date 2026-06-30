@@ -458,7 +458,7 @@ The current state of this repository — `config.yaml` together with `models_cla
 - Without a GPU: classical models (RF, XGB, SVM) and ANN still complete on CPU; FT-Transformer is not recommended on CPU (>30 h on the full dataset).
 - Datasets in `Data/`: `ASHRAE_2022_Clean_api.csv`, `ASHRAE_2018_v2.csv`, `Moujalled_api.csv`, `Hostein_api.csv`.
 
-### Full pipeline (five commands, ~10–13 h on a single GPU)
+### Full pipeline (six commands, ~10–13 h on a single GPU)
 
 ```bash
 # Phase 1 — Haghirad reproduction + 216-cell diagnostic factorial (RF, ASHRAE-2018, 12 features)
@@ -482,10 +482,38 @@ python3 transfert.py \
     --models_dir rerun_2026-04-28_no_reweighting/phase2_indomain \
     --output_dir rerun_2026-04-28_no_reweighting/phase3
 
+# Phase 4 — nearest-neighbour disagreement ceiling (ASHRAE-2022, 12-feature Haghirad space)
+python3 analysis/nn_disagreement.py \
+    --scope full --features_key features_12 \
+    --data_csv Data/ASHRAE_2022_Clean_api.csv \
+    --output_dir rerun_2026-04-28_no_reweighting/diagnostics/nn_ashrae_2022
+
 # Post-processing — SUMMARY.md, audit_log.json, regenerated LaTeX tables, performance ceiling figure
 python3 analysis/finalize_paper_rerun.py \
     --rerun_dir rerun_2026-04-28_no_reweighting
 ```
+
+### ✅ Verify the rerun reproduces the paper
+
+After the pipeline above, one command checks every published table value against
+the artefacts you just produced:
+
+```bash
+python3 analysis/verify_paper_tables.py
+# Verifying 144 paper claims against rerun_2026-04-28_no_reweighting/ (tol = 0.010)
+# ...
+# SUMMARY: 144 pass, 0 fail, 0 missing
+# ✅ All checked paper values reproduce within tolerance.
+```
+
+The expected values are frozen in [`analysis/paper_values.csv`](analysis/paper_values.csv)
+(one row per claim across Phase 1 baseline, Phase 2 in-domain + hybrids + empirical
+baselines, Phase 3 direct + adaptive transfer, and the Phase 4 NN ceiling). The
+script re-reads each value from the rerun, compares within a tolerance (default
+1 pp), prints a `PASS`/`FAIL`/`MISSING` table, and **exits non-zero on any
+mismatch** — so it doubles as a CI gate. Point it at a different rerun with
+`--rerun <dir>`, loosen the tolerance with `--tol`, or re-snapshot after an
+intentional change with `--freeze` (then review the `paper_values.csv` diff).
 
 ### Reviewer flexibility — phase or algorithm at a time
 
