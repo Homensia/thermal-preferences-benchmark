@@ -47,7 +47,6 @@ import sys
 from pathlib import Path
 from typing import Callable, Optional
 
-import numpy as np
 import pandas as pd
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -72,6 +71,32 @@ PHASE3_REGIMES = ["B_finetune_80-20", "B_finetune_20-80"]
 PHASE3_VARIANTS = ["RF_adapt", "XGB_adapt", "FT_head", "FT_full"]
 PHASE1_BASELINE_CONFIG = "Haghirad_NotOpt_NoCW"  # the config retained as Phase 2 baseline
 NN_METRICS = ["primary_disagreement", "case_b_cluster_agreement", "case_c_agreement"]
+
+# Per-model metrics checked for every model block (Phase 1/2/3). Names are
+# canonical here and translated to each source's column/field via the alias maps.
+MODEL_METRICS = ["accuracy", "qwk", "f1_macro", "wilson_low", "wilson_high"]
+
+# Headline features cited in the paper's importance discussion (§3.4.1).
+RF_FEATURES = ["Tair", "clo", "RH", "vel"]
+XGB_FEATURES = ["Climate", "Season", "cooling type"]
+
+# The 10 model pairs of the Phase 2 pairwise Wilcoxon test (alphabetical order,
+# matching the ALLMODELS_pairwise_wilcoxon.csv rows).
+WILCOXON_PAIRS = [
+    ("ANN", "FTTransformer"), ("ANN", "RandomForest"), ("ANN", "SVM"),
+    ("ANN", "XGBoost"), ("FTTransformer", "RandomForest"),
+    ("FTTransformer", "SVM"), ("FTTransformer", "XGBoost"),
+    ("RandomForest", "SVM"), ("RandomForest", "XGBoost"), ("SVM", "XGBoost"),
+]
+
+# Canonical metric name -> actual field/column name, per source kind.
+JSON_METRIC_ALIAS = {
+    "wilson_low": "accuracy_wilson_ci95_low",
+    "wilson_high": "accuracy_wilson_ci95_high",
+}
+GRID_METRIC_ALIAS = {
+    "f1_macro": "macro_f1",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -106,28 +131,31 @@ def _load_phase1(rerun: Path, key: str, target: str, metric: str) -> Optional[fl
              & ros_false
              & (df["config"].astype(str) == key)
              & (df["target"].astype(str) == target)]
-    if sub.empty or metric not in sub.columns:
+    col = GRID_METRIC_ALIAS.get(metric, metric)
+    if sub.empty or col not in sub.columns:
         return None
-    return float(sub.iloc[0][metric])
+    return float(sub.iloc[0][col])
 
 
 def _load_phase2(rerun: Path, key: str, target: str, metric: str) -> Optional[float]:
+    field = JSON_METRIC_ALIAS.get(metric, metric)
     base = rerun / "phase2_indomain" / target / key
     for name in (f"{target}__{key}_test_results.json",
                  f"{target}_{key}_test_results.json"):
         d = _read_json(base / name)
         if d is not None:
-            return d.get(metric)
+            return d.get(field)
     return None
 
 
 def _load_phase2_hybrid(rerun: Path, key: str, target: str, metric: str) -> Optional[float]:
     # key = "RF" or "XGB" (the head tag); folder is FTTransformer_as_features/<Head>
+    field = JSON_METRIC_ALIAS.get(metric, metric)
     head_folder = {"RF": "RF", "XGB": "XGBoost"}[key]
     d = _read_json(rerun / "phase2_indomain" / target
                    / "FTTransformer_as_features" / head_folder
                    / f"{target}_FTemb_{key}_test_results.json")
-    return None if d is None else d.get(metric)
+    return None if d is None else d.get(field)
 
 
 def _load_baseline(rerun: Path, key: str, target: str, metric: str) -> Optional[float]:
@@ -143,19 +171,53 @@ def _load_baseline(rerun: Path, key: str, target: str, metric: str) -> Optional[
 
 def _load_phase3_direct(rerun: Path, key: str, target: str, metric: str) -> Optional[float]:
     # key = "<cohort>:<model_tag>", e.g. "Moujalled:RF"
+    field = JSON_METRIC_ALIAS.get(metric, metric)
     cohort, tag = key.split(":")
     folder = PHASE3_DIRECT_FOLDER[tag]
     d = _read_json(rerun / "phase3" / cohort / "A_direct" / target / folder
                    / f"{cohort}__{target}__{tag}_test_results.json")
-    return None if d is None else d.get(metric)
+    return None if d is None else d.get(field)
 
 
 def _load_phase3_adaptive(rerun: Path, key: str, target: str, metric: str) -> Optional[float]:
     # key = "<cohort>:<regime>:<variant>", e.g. "Moujalled:B_finetune_80-20:RF_adapt"
+    field = JSON_METRIC_ALIAS.get(metric, metric)
     cohort, regime, variant = key.split(":")
     d = _read_json(rerun / "phase3" / cohort / regime / target / variant
                    / f"{cohort}__{target}__{variant}_test_results.json")
-    return None if d is None else d.get(metric)
+    return None if d is None else d.get(field)
+
+
+def _load_feature_importance(rerun: Path, key: str, target: str,
+                             metric: str) -> Optional[float]:
+    # key = "<model_tag>:<feature>", e.g. "RF:Tair" or "XGB:cooling type"
+    tag, feature = key.split(":", 1)
+    model = {"RF": "RandomForest", "XGB": "XGBoost"}[tag]
+    df = _read_csv(rerun / "phase2_indomain" / target / model
+                   / f"{target}_{model}_feature_importance_aggregated.csv")
+    if df is None:
+        return None
+    sub = df[df["group"].astype(str) == feature]
+    if sub.empty:
+        return None
+    return float(sub.iloc[0]["importance"])
+
+
+def _load_wilcoxon_sig(rerun: Path, key: str, target: str,
+                       metric: str) -> Optional[float]:
+    # key = "<model_a>|<model_b>" (unordered); returns 1.0 if the pair is
+    # significant after Bonferroni (reject_at_0.05), else 0.0.
+    a, b = key.split("|")
+    df = _read_csv(rerun / "phase2_indomain" / target
+                   / f"{target}_ALLMODELS_pairwise_wilcoxon.csv")
+    if df is None:
+        return None
+    want = {a, b}
+    for _, r in df.iterrows():
+        if {str(r["model_a"]), str(r["model_b"])} == want:
+            val = str(r["reject_at_0.05"]).strip().lower()
+            return 1.0 if val in ("true", "1", "1.0") else 0.0
+    return None
 
 
 def _load_nn(rerun: Path, key: str, target: str, metric: str) -> Optional[float]:
@@ -175,6 +237,8 @@ LOADERS: dict[str, Callable[[Path, str, str, str], Optional[float]]] = {
     "baseline": _load_baseline,
     "phase3_direct": _load_phase3_direct,
     "phase3_adaptive": _load_phase3_adaptive,
+    "feature_importance": _load_feature_importance,
+    "wilcoxon_sig": _load_wilcoxon_sig,
     "nn_ceiling": _load_nn,
 }
 
@@ -187,23 +251,31 @@ def _freeze_plan() -> list[tuple[str, str, str, str]]:
     """Yield (block, key, target, metric) for every checked claim."""
     plan: list[tuple[str, str, str, str]] = []
     for target in TARGETS:
-        for metric in ("accuracy", "qwk"):
+        for metric in MODEL_METRICS:
             plan.append(("phase1", PHASE1_BASELINE_CONFIG, target, metric))
         for model in PHASE2_MODELS:
-            for metric in ("accuracy", "qwk"):
+            for metric in MODEL_METRICS:
                 plan.append(("phase2", model, target, metric))
         for _disp, tag in PHASE2_HYBRIDS:
-            for metric in ("accuracy", "qwk"):
+            for metric in MODEL_METRICS:
                 plan.append(("phase2_hybrid", tag, target, metric))
         for method in BASELINE_METHODS:
             plan.append(("baseline", method, target, "accuracy"))
         for cohort in COHORTS:
             for tag in PHASE3_DIRECT_MODELS:
-                plan.append(("phase3_direct", f"{cohort}:{tag}", target, "accuracy"))
+                for metric in MODEL_METRICS:
+                    plan.append(("phase3_direct", f"{cohort}:{tag}", target, metric))
             for regime in PHASE3_REGIMES:
                 for variant in PHASE3_VARIANTS:
-                    plan.append(("phase3_adaptive",
-                                 f"{cohort}:{regime}:{variant}", target, "accuracy"))
+                    for metric in MODEL_METRICS:
+                        plan.append(("phase3_adaptive",
+                                     f"{cohort}:{regime}:{variant}", target, metric))
+        for feat in RF_FEATURES:
+            plan.append(("feature_importance", f"RF:{feat}", target, "importance"))
+        for feat in XGB_FEATURES:
+            plan.append(("feature_importance", f"XGB:{feat}", target, "importance"))
+        for a, b in WILCOXON_PAIRS:
+            plan.append(("wilcoxon_sig", f"{a}|{b}", target, "significant"))
         for metric in NN_METRICS:
             plan.append(("nn_ceiling", "-", target, metric))
     return plan
@@ -217,13 +289,16 @@ def freeze(rerun: Path) -> int:
         if actual is None:
             skipped.append((block, key, target, metric))
             continue
+        # Significance is a 0/1 flag: a tolerance of 0.5 turns the numeric
+        # comparison into an exact match (1 vs 0 fails, equal passes).
+        row_tol = 0.5 if block == "wilcoxon_sig" else ""
         rows.append({
             "block": block,
             "key": key,
             "target": target,
             "metric": metric,
             "expected": round(float(actual), 3),
-            "tol": "",
+            "tol": row_tol,
         })
     with open(PAPER_VALUES_CSV, "w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=["block", "key", "target", "metric",

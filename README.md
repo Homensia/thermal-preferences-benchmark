@@ -500,20 +500,23 @@ the artefacts you just produced:
 
 ```bash
 python3 analysis/verify_paper_tables.py
-# Verifying 144 paper claims against rerun_2026-04-28_no_reweighting/ (tol = 0.010)
+# Verifying 531 paper claims against rerun_2026-04-28_no_reweighting/ (tol = 0.010)
 # ...
-# SUMMARY: 144 pass, 0 fail, 0 missing
+# SUMMARY: 531 pass, 0 fail, 0 missing
 # ✅ All checked paper values reproduce within tolerance.
 ```
 
 The expected values are frozen in [`analysis/paper_values.csv`](analysis/paper_values.csv)
-(one row per claim across Phase 1 baseline, Phase 2 in-domain + hybrids + empirical
-baselines, Phase 3 direct + adaptive transfer, and the Phase 4 NN ceiling). The
-script re-reads each value from the rerun, compares within a tolerance (default
-1 pp), prints a `PASS`/`FAIL`/`MISSING` table, and **exits non-zero on any
-mismatch** — so it doubles as a CI gate. Point it at a different rerun with
-`--rerun <dir>`, loosen the tolerance with `--tol`, or re-snapshot after an
-intentional change with `--freeze` (then review the `paper_values.csv` diff).
+(one row per claim). Coverage spans every reported table: Phase 1 baseline, Phase 2
+in-domain + hybrids + empirical baselines, Phase 3 direct + adaptive transfer, and
+the Phase 4 NN ceiling — and for each model cell it checks **accuracy, QWK,
+macro-F1 and the Wilson 95% CI bounds**, plus **feature-importance** shares (§3.4)
+and the **pairwise Wilcoxon significance** flags (§3.2.4). The script re-reads each
+value from the rerun, compares within a tolerance (default 1 pp; significance flags
+use an exact 0/1 match), prints a `PASS`/`FAIL`/`MISSING` table, and **exits
+non-zero on any mismatch** — so it doubles as a CI gate. Point it at a different
+rerun with `--rerun <dir>`, loosen the tolerance with `--tol`, or re-snapshot after
+an intentional change with `--freeze` (then review the `paper_values.csv` diff).
 
 ### Reviewer flexibility — phase or algorithm at a time
 
