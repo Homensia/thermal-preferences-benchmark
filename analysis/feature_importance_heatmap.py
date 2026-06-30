@@ -19,8 +19,8 @@ XGBoost use different scoring conventions).
 Usage
 -----
     python analysis/feature_importance_heatmap.py \\
-        --results_dir rerun_2026-04-21/kfold_results_unified \\
-        --out <manuscript>/figures/feature_importance_heatmap.pdf
+        --results_dir rerun_2026-04-28_no_reweighting/phase2_indomain \\
+        --out rerun_2026-04-28_no_reweighting/regenerated_figures/feature_importance_heatmap.pdf
 
 """
 from __future__ import annotations
@@ -214,22 +214,33 @@ def make_heatmap(mat: pd.DataFrame, out_path: Path) -> None:
     plt.close(fig)
 
 
+def generate(results_dir: Path, out_path: Path) -> tuple[Path, Path, Path]:
+    """Build matrix + render heatmap + persist raw matrix CSV in one call.
+
+    Returns the (pdf, png, csv) paths actually written.
+
+    This is the canonical entry point used both by this script's CLI and by
+    `analysis/finalize_paper_rerun.py`. Errors propagate (FileNotFoundError
+    if any aggregated CSV is missing) so a partial run cannot silently
+    publish an incomplete heatmap.
+    """
+    mat = load_matrix(results_dir)
+    make_heatmap(mat, out_path)
+    csv_path = out_path.with_suffix(".csv")
+    mat.to_csv(csv_path)
+    return out_path, out_path.with_suffix(".png"), csv_path
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--results_dir", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
     args = p.parse_args()
 
-    mat = load_matrix(args.results_dir)
-    make_heatmap(mat, args.out)
-    print(f"wrote {args.out}")
-    print(f"wrote {args.out.with_suffix('.png')}")
-
-    # Also persist the raw matrix (absolute importances, not normalised) next
-    # to the figure, for reproducibility audits.
-    csv_path = args.out.with_suffix(".csv")
-    mat.to_csv(csv_path)
-    print(f"wrote {csv_path}")
+    pdf, png, csv = generate(args.results_dir, args.out)
+    print(f"wrote {pdf}")
+    print(f"wrote {png}")
+    print(f"wrote {csv}")
 
 
 if __name__ == "__main__":

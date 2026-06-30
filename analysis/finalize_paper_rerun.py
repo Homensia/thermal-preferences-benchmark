@@ -19,7 +19,10 @@ produces:
         wilcoxon_results.csv
         wilcoxon_summary.md
       regenerated_figures/
-        performance_ceiling.pdf   (produced by analysis/performance_ceiling.py)
+        feature_importance_heatmap.{pdf,png,csv}
+            (produced via analysis/feature_importance_heatmap.py:generate())
+        performance_ceiling.pdf
+            (produced separately by analysis/performance_ceiling.py)
 
 Usage
 -----
@@ -752,10 +755,16 @@ def write_tables_readme(out_path: Path) -> None:
         "Metrics shown in every table: **Accuracy**, **Macro-F1** (unweighted "
         "average of per-class F1), **Weighted-F1** (support-weighted average "
         "of per-class F1), **QWK** (quadratic weighted Cohen's kappa, treats "
-        "the target as ordinal). The `performance_ceiling.pdf` figure that "
-        "accompanies these tables is produced by "
-        "`analysis/performance_ceiling.py` (single source of truth for the "
-        "prior-weighted random baseline `Σ pᵢ²`).\n"
+        "the target as ordinal).\n\n"
+        "Companion figures under `../regenerated_figures/`:\n\n"
+        "- `feature_importance_heatmap.{pdf,png,csv}` — 17 features × 6 cells "
+        "(3 targets × {RF, XGBoost}), grouped by feature category. Produced "
+        "by `analysis/feature_importance_heatmap.py:generate()`, invoked "
+        "automatically at the end of `finalize_paper_rerun.py`.\n"
+        "- `performance_ceiling.pdf` — three-panel overlay with Wilson CI, "
+        "NN-agreement ceiling and prior-weighted random baseline. Produced "
+        "separately by `analysis/performance_ceiling.py` (single source of "
+        "truth for the baseline `Σ pᵢ²`).\n"
     )
 
 
@@ -1008,12 +1017,32 @@ def main():
     write_wilcoxon_md(wilc, tables_dir / "wilcoxon_summary.md")
     write_tables_readme(tables_dir / "README.md")
 
+    # Feature-importance heatmap (3 outputs: pdf + png + csv).
+    # Owned by analysis/feature_importance_heatmap.py — finalize invokes the
+    # canonical generate() function so the heatmap stays in sync with the
+    # aggregated CSVs produced by models.py. Soft-fail with a warning if any
+    # of the six *_feature_importance_aggregated.csv files is missing
+    # (e.g. a partial rerun where the user trained only one tree-based model).
+    figures_dir = rerun_dir / "regenerated_figures"
+    figures_dir.mkdir(exist_ok=True)
+    try:
+        from analysis.feature_importance_heatmap import generate as gen_heatmap
+        heatmap_pdf, heatmap_png, heatmap_csv = gen_heatmap(
+            rerun_dir / "phase2_indomain",
+            figures_dir / "feature_importance_heatmap.pdf",
+        )
+        print(f"[INFO] Feature-importance heatmap: {heatmap_pdf.name}, "
+              f"{heatmap_png.name}, {heatmap_csv.name}")
+    except FileNotFoundError as e:
+        print(f"[WARN] Feature-importance heatmap skipped — {e}")
+
     (rerun_dir / "SUMMARY.md").write_text(
         build_summary(rerun_dir, p1, p2, p2b, p3d, p3a))
     audit = build_audit_log(rerun_dir, p1, p2, p2b, p3d, p3a)
     (rerun_dir / "audit_log.json").write_text(json.dumps(audit, indent=2))
 
-    print("[OK] Wrote SUMMARY.md, audit_log.json, regenerated_tables/")
+    print("[OK] Wrote SUMMARY.md, audit_log.json, regenerated_tables/, "
+          "regenerated_figures/feature_importance_heatmap.{pdf,png,csv}")
 
 
 if __name__ == "__main__":
