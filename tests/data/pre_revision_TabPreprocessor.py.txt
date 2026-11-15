@@ -1,0 +1,76 @@
+class TabPreprocessor:
+    """
+    Preprocess categorical + numerical features for Transformer-based tabular models.
+
+    Steps:
+        1. Categorical columns → LabelEncoder per column.
+        2. Numerical columns → StandardScaler.
+        3. Output tensors compatible with PyTorch models.
+
+    Parameters
+    ----------
+    cat_cols : list of str
+        Names of categorical columns.
+    num_cols : list of str
+        Names of numerical columns.
+
+    Attributes
+    ----------
+    encoders : dict
+        Mapping column → fitted LabelEncoder.
+    scaler : StandardScaler
+        Fitted numerical scaler.
+    n_categories : list[int]
+        Number of unique categories per categorical column.
+    """
+    def __init__(self, cat_cols, num_cols):  
+        self.cat_cols = list(cat_cols)
+        self.num_cols = list(num_cols)
+        self.encoders = {c: LabelEncoder() for c in self.cat_cols}
+        self.scaler = SK_StandardScaler()
+
+    def fit(self, X: pd.DataFrame):
+        """
+        Fit encoders and scaler.
+
+        Parameters
+        ----------
+        X : pandas.DataFrame
+            Training input dataframe.
+
+        Returns
+        -------
+        self
+        """
+        Xc = X[self.cat_cols].astype(str).copy()
+        for c in self.cat_cols:
+            Xc[c] = self.encoders[c].fit_transform(Xc[c].fillna("Unknown"))
+        Xn = X[self.num_cols].copy()
+        Xn = self.scaler.fit(Xn)
+        self.n_categories = [len(self.encoders[c].classes_) for c in self.cat_cols]
+        return self
+
+    def transform(self, X: pd.DataFrame):
+        """
+        Transform dataframe into PyTorch tensors.
+
+        Unknown categories are mapped to the first seen category.
+
+        Parameters
+        ----------
+        X : pandas.DataFrame
+
+        Returns
+        -------
+        (x_cat, x_num) : tuple(torch.LongTensor, torch.FloatTensor)
+        """
+        Xc = X[self.cat_cols].astype(str).copy()
+        for c in self.cat_cols:
+            known = set(self.encoders[c].classes_)
+            Xc[c] = Xc[c].apply(lambda v: v if v in known else self.encoders[c].classes_[0])
+            Xc[c] = self.encoders[c].transform(Xc[c])
+        Xn = X[self.num_cols].copy()
+        Xn = self.scaler.transform(Xn)
+        x_cat = torch.tensor(Xc.values, dtype=torch.long)
+        x_num = torch.tensor(Xn, dtype=torch.float32)
+        return x_cat, x_num

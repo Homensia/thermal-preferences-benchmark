@@ -1,0 +1,23 @@
+def make_preprocess(num_cols, cat_cols):
+    """
+    Create a preprocessing pipeline for numerical and categorical features.
+
+    Numerical features → StandardScaler  
+    Categorical features → OneHotEncoder
+
+    Parameters
+    ----------
+    num_cols : list of str
+        Names of numerical columns.
+    cat_cols : list of str
+        Names of categorical columns.
+
+    Returns
+    -------
+    sklearn.compose.ColumnTransformer
+        Preprocessing pipeline.
+    """
+    return ColumnTransformer([
+        ("num", StandardScaler(), num_cols),
+        ("ohe", OneHotEncoder(handle_unknown="ignore"), cat_cols),
+    ])
